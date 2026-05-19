@@ -118,6 +118,7 @@ impl Recorder {
         app: &AppHandle,
         settings: &Settings,
         app_dir: &PathBuf,
+        format_mode: bool,
     ) -> Result<String, String> {
         // Stop recording
         {
@@ -153,8 +154,27 @@ impl Recorder {
         // Cleanup temp file
         let _ = std::fs::remove_file(&temp_path);
 
-        // Clean up text
-        let cleaned = cleanup_text(&raw_text);
+        // Clean up / format
+        let cleaned = if format_mode {
+            let noise_cleaned = crate::cleanup::strip_noise_only(&raw_text);
+            match crate::format_groq::format_text(&settings.groq_api_key, &noise_cleaned).await {
+                Ok(formatted) => formatted,
+                Err(e) => {
+                    eprintln!("[Typr] Groq format failed: {}", e);
+                    let _ = app.emit("format-error", e);
+                    cleanup_text(&raw_text)
+                }
+            }
+        } else {
+            cleanup_text(&raw_text)
+        };
+
+        // Clear format-mode attribute on overlay
+        if let Some(overlay) = app.get_webview_window("overlay") {
+            let _ = overlay.eval(
+                "document.getElementById('bar')?.removeAttribute('data-format-mode');"
+            );
+        }
 
         // Auto-paste — re-click the original cursor position so the correct
         // input field has focus before Ctrl+V fires.

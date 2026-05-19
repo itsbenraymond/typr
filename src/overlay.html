@@ -113,6 +113,35 @@
       }
 
       .bar[data-state="transcribing"] .btn { opacity: 0.35; cursor: default; pointer-events: none; }
+
+      /* AI format mode — amber waveform during recording */
+      .bar[data-format-mode="true"][data-state="recording"] .wave span {
+        background: #f5a623;
+      }
+
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span {
+        background: #f5a623;
+        animation: wave 0.6s ease-in-out infinite;
+      }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(1)  { animation-delay: 0.00s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(2)  { animation-delay: 0.05s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(3)  { animation-delay: 0.10s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(4)  { animation-delay: 0.15s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(5)  { animation-delay: 0.20s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(6)  { animation-delay: 0.25s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(7)  { animation-delay: 0.30s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(8)  { animation-delay: 0.25s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(9)  { animation-delay: 0.20s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(10) { animation-delay: 0.15s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(11) { animation-delay: 0.10s; }
+      .bar[data-format-mode="true"][data-state="transcribing"] .wave span:nth-child(12) { animation-delay: 0.05s; }
+
+      /* Error state — red flash */
+      .bar[data-state="error"] .wave span {
+        background: #e5484d;
+        animation: wave 0.4s ease-in-out infinite;
+      }
+      .bar[data-state="error"] .btn { opacity: 0.35; cursor: default; pointer-events: none; }
     </style>
   </head>
   <body>
@@ -243,6 +272,13 @@
         if (bar.getAttribute('data-state') !== 'recording') return;
         try { await invoke('toggle_recording'); }
         catch (err) { console.error('[Typr] toggle_recording failed:', err); }
+      });
+
+      window.__TAURI__.event.listen('format-error', () => {
+        bar.setAttribute('data-state', 'error');
+        setTimeout(() => {
+          bar.setAttribute('data-state', 'ready');
+        }, 1500);
       });
     </script>
   </body>

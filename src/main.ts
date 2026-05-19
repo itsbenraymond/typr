@@ -97,8 +97,10 @@ async function loadSettings() {
   // Recording mode
   setRecordingMode(currentSettings.recordingMode);
 
-  // Hotkey
-  hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Cmd");
+  // Hotkeys
+  hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Ctrl");
+  const formatHotkeyText = document.getElementById("format-hotkey-text")!;
+  formatHotkeyText.textContent = "Ctrl+Shift+F";
 }
 
 function setEngine(engine: string) {
@@ -196,6 +198,11 @@ listen<string>("recording-state", (event) => {
 listen<DownloadProgress>("download-progress", (event) => {
   const { percent } = event.payload;
   progressFill.style.width = `${percent}%`;
+});
+
+// Log Groq format errors for debugging
+listen<string>("format-error", (event) => {
+  console.warn("[Typr] Groq format error:", event.payload);
 });
 
 // Initialize

@@ -74,11 +74,51 @@ async fn toggle_recording(
 }
 
 #[tauri::command]
+async fn toggle_recording_format(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    do_toggle_recording_format(&app, &state).await
+}
+
+#[tauri::command]
 fn cancel_recording(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state.recorder.cancel_recording(&app)
+}
+
+/// Shared logic for AI-format toggle recording (Ctrl+Shift+F).
+async fn do_toggle_recording_format(
+    app: &tauri::AppHandle,
+    state: &AppState,
+) -> Result<String, String> {
+    let current_state = state.recorder.get_state();
+    match current_state {
+        RecordingState::Ready => {
+            let mic = state.settings.lock().unwrap().microphone.clone();
+            state.recorder.start_recording(app, &mic)?;
+            // Set amber waveform for format mode
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = overlay.eval(
+                    "document.getElementById('bar')?.setAttribute('data-format-mode', 'true');"
+                );
+            }
+            Ok("recording-format".to_string())
+        }
+        RecordingState::Recording => {
+            let settings = state.settings.lock().unwrap().clone();
+            let result = state
+                .recorder
+                .stop_and_transcribe(app, &settings, &state.app_dir, true)
+                .await?;
+            Ok(result)
+        }
+        RecordingState::Transcribing => {
+            Err("Currently transcribing, please wait".to_string())
+        }
+    }
 }
 
 /// Shared logic for toggle recording, used by both the Tauri command and hotkey handler.
@@ -97,7 +137,7 @@ async fn do_toggle_recording(
             let settings = state.settings.lock().unwrap().clone();
             let result = state
                 .recorder
-                .stop_and_transcribe(app, &settings, &state.app_dir)
+                .stop_and_transcribe(app, &settings, &state.app_dir, false)
                 .await?;
             Ok(result)
         }
@@ -128,6 +168,7 @@ fn main() {
             check_model_downloaded,
             download_model,
             toggle_recording,
+            toggle_recording_format,
             cancel_recording,
         ])
         // ── Hide main window to tray on close; overlay just hides itself ──
@@ -224,6 +265,27 @@ fn main() {
 
             println!("[Typr] Registering global shortcut: {}", initial_hotkey);
 
+            // ── AI format hotkey (Ctrl+Shift+F) — always toggle, no PTT ────
+            let handle_fmt = app.handle().clone();
+            match app.global_shortcut().on_shortcut(
+                "CmdOrCtrl+Shift+F",
+                move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let handle = handle_fmt.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = handle.state::<AppState>();
+                            match do_toggle_recording_format(&handle, state.inner()).await {
+                                Ok(r) => println!("[Typr] Format toggle result: {}", r),
+                                Err(e) => eprintln!("[Typr] Format toggle error: {}", e),
+                            }
+                        });
+                    }
+                },
+            ) {
+                Ok(_) => println!("[Typr] AI format shortcut registered"),
+                Err(e) => eprintln!("[Typr] ERROR: Failed to register format shortcut: {}", e),
+            }
+
             match app.global_shortcut().on_shortcut(
                 initial_hotkey.as_str(),
                 move |_app, shortcut, event| {
@@ -277,6 +339,7 @@ fn main() {
                                             &handle,
                                             &settings,
                                             &state.app_dir,
+                                            false,
                                         ).await {
                                             Ok(result) => println!("[Typr] Transcription: {}", result),
                                             Err(e) => eprintln!("[Typr] Transcription error: {}", e),
