@@ -13,6 +13,7 @@ pub struct Settings {
     #[serde(rename = "recordingMode")]
     pub recording_mode: String,
     pub hotkey: String,
+    pub formatter: String,
 }
 
 impl Default for Settings {
@@ -24,6 +25,7 @@ impl Default for Settings {
             groq_api_key: String::new(),
             recording_mode: "toggle".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
+            formatter: "ai".to_string(),
         }
     }
 }

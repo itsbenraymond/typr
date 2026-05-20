@@ -89,7 +89,7 @@ fn cancel_recording(
     state.recorder.cancel_recording(&app)
 }
 
-/// Shared logic for AI-format toggle recording (Ctrl+Shift+F).
+/// Shared logic for the secondary hotkey (Ctrl+Shift+F) — uses the alternate formatter.
 async fn do_toggle_recording_format(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -97,21 +97,27 @@ async fn do_toggle_recording_format(
     let current_state = state.recorder.get_state();
     match current_state {
         RecordingState::Ready => {
-            let mic = state.settings.lock().unwrap().microphone.clone();
+            let (mic, use_ai) = {
+                let s = state.settings.lock().unwrap();
+                // Alternate: if default is AI, secondary is quick, and vice versa.
+                (s.microphone.clone(), s.formatter != "ai")
+            };
             state.recorder.start_recording(app, &mic)?;
-            // Set amber waveform for format mode
-            if let Some(overlay) = app.get_webview_window("overlay") {
-                let _ = overlay.eval(
-                    "document.getElementById('bar')?.setAttribute('data-format-mode', 'true');"
-                );
+            if use_ai {
+                if let Some(overlay) = app.get_webview_window("overlay") {
+                    let _ = overlay.eval(
+                        "document.getElementById('bar')?.setAttribute('data-format-mode', 'true');"
+                    );
+                }
             }
-            Ok("recording-format".to_string())
+            Ok("recording-alt".to_string())
         }
         RecordingState::Recording => {
             let settings = state.settings.lock().unwrap().clone();
+            let use_ai = settings.formatter != "ai";
             let result = state
                 .recorder
-                .stop_and_transcribe(app, &settings, &state.app_dir, true)
+                .stop_and_transcribe(app, &settings, &state.app_dir, use_ai)
                 .await?;
             Ok(result)
         }
@@ -121,7 +127,7 @@ async fn do_toggle_recording_format(
     }
 }
 
-/// Shared logic for toggle recording, used by both the Tauri command and hotkey handler.
+/// Shared logic for the primary hotkey — respects settings.formatter.
 async fn do_toggle_recording(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -129,15 +135,26 @@ async fn do_toggle_recording(
     let current_state = state.recorder.get_state();
     match current_state {
         RecordingState::Ready => {
-            let mic = state.settings.lock().unwrap().microphone.clone();
+            let (mic, use_ai) = {
+                let s = state.settings.lock().unwrap();
+                (s.microphone.clone(), s.formatter == "ai")
+            };
             state.recorder.start_recording(app, &mic)?;
+            if use_ai {
+                if let Some(overlay) = app.get_webview_window("overlay") {
+                    let _ = overlay.eval(
+                        "document.getElementById('bar')?.setAttribute('data-format-mode', 'true');"
+                    );
+                }
+            }
             Ok("recording".to_string())
         }
         RecordingState::Recording => {
             let settings = state.settings.lock().unwrap().clone();
+            let use_ai = settings.formatter == "ai";
             let result = state
                 .recorder
-                .stop_and_transcribe(app, &settings, &state.app_dir, false)
+                .stop_and_transcribe(app, &settings, &state.app_dir, use_ai)
                 .await?;
             Ok(result)
         }
@@ -335,11 +352,12 @@ fn main() {
                                     if current == RecordingState::Recording {
                                         let settings =
                                             state.settings.lock().unwrap().clone();
+                                        let use_ai = settings.formatter == "ai";
                                         match state.recorder.stop_and_transcribe(
                                             &handle,
                                             &settings,
                                             &state.app_dir,
-                                            false,
+                                            use_ai,
                                         ).await {
                                             Ok(result) => println!("[Typr] Transcription: {}", result),
                                             Err(e) => eprintln!("[Typr] Transcription error: {}", e),

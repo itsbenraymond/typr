@@ -3,19 +3,19 @@ use reqwest::Client;
 use serde_json::json;
 
 const FORMAT_PROMPT: &str = "\
-You are a text formatter. The input is a raw speech transcription. \
-Clean it up: fix punctuation, capitalize sentences. \
-If the content is a list, format it with bullet points and newlines. \
-If there are natural paragraph breaks, add them. \
-Return ONLY the formatted text — no commentary, no explanation.";
+You are a plain-text formatter for speech transcriptions. Rules:\n\
+1. Fix punctuation and capitalize the start of every sentence.\n\
+2. If the speaker lists items, put each item on its own line with a dash prefix.\n\
+3. Add a blank line between distinct topics or paragraphs.\n\
+4. Output ONLY the corrected text. No intro, no explanation, no markdown (no **, no *, no #, no backticks).";
 
 pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String> {
     if api_key.is_empty() {
-        return Err("Groq API key not set".to_string());
+        return Err("Groq API key not configured — add it in Settings > Engine".to_string());
     }
 
     let client = Client::builder()
-        .timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -26,7 +26,7 @@ pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String
             { "role": "user",   "content": raw_text }
         ],
         "max_tokens": 1024,
-        "temperature": 0.1
+        "temperature": 0.0
     });
 
     let resp = client
@@ -48,15 +48,33 @@ pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String
         .await
         .map_err(|e| format!("Groq JSON parse failed: {}", e))?;
 
-    let formatted = json["choices"][0]["message"]["content"]
+    let raw = json["choices"][0]["message"]["content"]
         .as_str()
         .unwrap_or("")
-        .trim()
-        .to_string();
+        .trim();
 
-    if formatted.is_empty() {
+    if raw.is_empty() {
         return Err("Groq returned empty response".to_string());
     }
 
-    Ok(formatted)
+    Ok(sanitize_output(raw))
+}
+
+/// Strip markdown artifacts that the model occasionally emits despite instructions.
+fn sanitize_output(text: &str) -> String {
+    // Remove code fences
+    let text = text.trim_matches('`');
+    // Strip leading/trailing quotes
+    let text = text.trim_matches('"').trim_matches('\'');
+    // Remove bold/italic markers
+    let text = text.replace("**", "").replace("__", "");
+    // Collapse runs of spaces produced by stripping markers
+    let text: String = text
+        .lines()
+        .map(|line| {
+            line.split_whitespace().collect::<Vec<_>>().join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    text.trim().to_string()
 }

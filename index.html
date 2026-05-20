@@ -141,17 +141,29 @@
             </div>
             <div class="setting-row">
               <div class="setting-label">
-                <span class="label-text">Quick Paste Hotkey</span>
-                <span class="label-hint">Global keyboard shortcut to trigger recording</span>
+                <span class="label-text">Default Formatter</span>
+                <span class="label-hint">Which formatter runs on your main hotkey</span>
               </div>
               <div class="setting-control">
-                <kbd id="hotkey-text">Cmd+Shift+D</kbd>
+                <div class="toggle-group">
+                  <button id="formatter-ai" class="toggle-btn active">AI Formatter</button>
+                  <button id="formatter-quick" class="toggle-btn">Quick Formatter</button>
+                </div>
               </div>
             </div>
             <div class="setting-row">
               <div class="setting-label">
-                <span class="label-text">AI Format Hotkey</span>
-                <span class="label-hint">Record then format with AI before pasting</span>
+                <span class="label-text">Main Hotkey</span>
+                <span class="label-hint">Uses the default formatter above</span>
+              </div>
+              <div class="setting-control">
+                <kbd id="hotkey-text">Ctrl+Shift+Space</kbd>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Alternate Hotkey</span>
+                <span class="label-hint">Always uses the other formatter</span>
               </div>
               <div class="setting-control">
                 <kbd id="format-hotkey-text">Ctrl+Shift+F</kbd>
