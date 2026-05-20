@@ -38,8 +38,8 @@ const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
-const formatterAi = document.getElementById("formatter-ai")!;
-const formatterQuick = document.getElementById("formatter-quick")!;
+const formatterToggle = document.getElementById("formatter-toggle") as HTMLInputElement;
+const formatterLabel = formatterToggle.nextElementSibling!.nextElementSibling as HTMLElement;
 const hotkeyText = document.getElementById("hotkey-text")!;
 
 // Section navigation
@@ -103,10 +103,8 @@ async function loadSettings() {
   // Formatter
   setFormatter(currentSettings.formatter ?? "ai");
 
-  // Hotkeys
+  // Hotkey
   hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Ctrl");
-  const formatHotkeyText = document.getElementById("format-hotkey-text")!;
-  formatHotkeyText.textContent = "Ctrl+Shift+F";
 }
 
 function setEngine(engine: string) {
@@ -125,8 +123,8 @@ function setRecordingMode(mode: string) {
 
 function setFormatter(fmt: string) {
   currentSettings.formatter = fmt;
-  formatterAi.classList.toggle("active", fmt === "ai");
-  formatterQuick.classList.toggle("active", fmt === "quick");
+  formatterToggle.checked = fmt === "ai";
+  formatterLabel.textContent = fmt === "ai" ? "On" : "Off";
 }
 
 async function checkModelStatus() {
@@ -190,13 +188,8 @@ modePtt.addEventListener("click", () => {
   saveSettings();
 });
 
-formatterAi.addEventListener("click", () => {
-  setFormatter("ai");
-  saveSettings();
-});
-
-formatterQuick.addEventListener("click", () => {
-  setFormatter("quick");
+formatterToggle.addEventListener("change", () => {
+  setFormatter(formatterToggle.checked ? "ai" : "quick");
   saveSettings();
 });
 

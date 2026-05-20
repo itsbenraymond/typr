@@ -58,7 +58,7 @@
         <section id="section-general" class="content-section active">
           <div class="section-header">
             <h2 class="section-title">General</h2>
-            <p class="section-desc">Configure your audio input device</p>
+            <p class="section-desc">Configure your audio input device and formatter</p>
           </div>
           <div class="settings-list">
             <div class="setting-row">
@@ -68,6 +68,19 @@
               </div>
               <div class="setting-control">
                 <select id="mic-select"></select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">AI Formatter</span>
+                <span class="label-hint">Uses Groq to fix punctuation, structure lists, and add paragraph breaks</span>
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="formatter-toggle" checked />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-label">On</span>
+                </label>
               </div>
             </div>
           </div>
@@ -141,32 +154,11 @@
             </div>
             <div class="setting-row">
               <div class="setting-label">
-                <span class="label-text">Default Formatter</span>
-                <span class="label-hint">Which formatter runs on your main hotkey</span>
-              </div>
-              <div class="setting-control">
-                <div class="toggle-group">
-                  <button id="formatter-ai" class="toggle-btn active">AI Formatter</button>
-                  <button id="formatter-quick" class="toggle-btn">Quick Formatter</button>
-                </div>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="label-text">Main Hotkey</span>
-                <span class="label-hint">Uses the default formatter above</span>
+                <span class="label-text">Hotkey</span>
+                <span class="label-hint">Global shortcut to start and stop recording</span>
               </div>
               <div class="setting-control">
                 <kbd id="hotkey-text">Ctrl+Shift+Space</kbd>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="label-text">Alternate Hotkey</span>
-                <span class="label-hint">Always uses the other formatter</span>
-              </div>
-              <div class="setting-control">
-                <kbd id="format-hotkey-text">Ctrl+Shift+F</kbd>
               </div>
             </div>
           </div>

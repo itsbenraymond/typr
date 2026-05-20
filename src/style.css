@@ -384,6 +384,68 @@ input[type="password"]::placeholder {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
+/* ── Toggle Switch ──────────────────────────────────── */
+
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--surface-active);
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  transition: background var(--transition), border-color var(--transition);
+  flex-shrink: 0;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.toggle-switch input:checked ~ .toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-switch input:checked ~ .toggle-track::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.toggle-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color var(--transition);
+}
+
+.toggle-switch input:checked ~ .toggle-label {
+  color: var(--text);
+}
+
 /* ── Buttons ────────────────────────────────────────── */
 
 .btn-primary {
