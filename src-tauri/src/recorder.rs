@@ -131,59 +131,70 @@ impl Recorder {
             update_overlay(app, &RecordingState::Transcribing);
         }
 
-        let temp_path = app_dir.join("temp_recording.wav");
+        // Run the whole pipeline in a closure so we can guarantee state is
+        // reset to Ready afterwards — whether the pipeline succeeds or fails.
+        // Previously any early-return Err left state stuck at Transcribing,
+        // silently swallowing all subsequent hotkey presses.
+        let result: Result<String, String> = async {
+            let temp_path = app_dir.join("temp_recording.wav");
 
-        // Save audio
-        {
-            let mut recorder = self.audio_recorder.lock().unwrap();
-            recorder.stop_and_save(&temp_path)?;
-        }
-
-        // Transcribe
-        let raw_text = match settings.engine.as_str() {
-            "local" => {
-                let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
-                transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
+            // Save audio
+            {
+                let mut recorder = self.audio_recorder.lock().unwrap();
+                recorder.stop_and_save(&temp_path)?;
             }
-            "cloud" => {
-                transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await?
-            }
-            _ => return Err(format!("Unknown engine: {}", settings.engine)),
-        };
 
-        // Cleanup temp file
-        let _ = std::fs::remove_file(&temp_path);
-
-        // Clean up / format
-        let cleaned = if format_mode {
-            let noise_cleaned = crate::cleanup::strip_noise_only(&raw_text);
-            match crate::format_groq::format_text(&settings.groq_api_key, &noise_cleaned).await {
-                Ok(formatted) => formatted,
-                Err(e) => {
-                    eprintln!("[Typr] Groq format failed: {}", e);
-                    let _ = app.emit("format-error", e);
-                    cleanup_text(&raw_text)
+            // Transcribe
+            let raw_text = match settings.engine.as_str() {
+                "local" => {
+                    let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
+                    transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
                 }
+                "cloud" => {
+                    transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await?
+                }
+                _ => return Err(format!("Unknown engine: {}", settings.engine)),
+            };
+
+            // Cleanup temp file
+            let _ = std::fs::remove_file(&temp_path);
+
+            // Clean up / format
+            let cleaned = if format_mode {
+                let noise_cleaned = crate::cleanup::strip_noise_only(&raw_text);
+                match crate::format_groq::format_text(&settings.groq_api_key, &noise_cleaned).await {
+                    Ok(formatted) => formatted,
+                    Err(e) => {
+                        eprintln!("[Typr] Groq format failed: {}", e);
+                        let _ = app.emit("format-error", e);
+                        cleanup_text(&raw_text)
+                    }
+                }
+            } else {
+                cleanup_text(&raw_text)
+            };
+
+            // Clear format-mode attribute on overlay
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = overlay.eval(
+                    "document.getElementById('bar')?.removeAttribute('data-format-mode');"
+                );
             }
-        } else {
-            cleanup_text(&raw_text)
-        };
 
-        // Clear format-mode attribute on overlay
-        if let Some(overlay) = app.get_webview_window("overlay") {
-            let _ = overlay.eval(
-                "document.getElementById('bar')?.removeAttribute('data-format-mode');"
-            );
+            // Auto-paste — re-click the original cursor position so the correct
+            // input field has focus before Ctrl+V fires.
+            if !cleaned.is_empty() {
+                let saved_hwnd = *self.focused_hwnd.lock().unwrap();
+                paste_text(&cleaned, saved_hwnd)?;
+            }
+
+            Ok(cleaned)
         }
+        .await;
 
-        // Auto-paste — re-click the original cursor position so the correct
-        // input field has focus before Ctrl+V fires.
-        if !cleaned.is_empty() {
-            let saved_hwnd = *self.focused_hwnd.lock().unwrap();
-            paste_text(&cleaned, saved_hwnd)?;
-        }
-
-        // Reset state
+        // Always reset state to Ready — even if the pipeline errored.
+        // This is the fix: previously only the success path reset state,
+        // leaving it permanently stuck at Transcribing on any failure.
         {
             let mut state = self.state.lock().unwrap();
             *state = RecordingState::Ready;
@@ -191,7 +202,12 @@ impl Recorder {
             update_overlay(app, &RecordingState::Ready);
         }
 
-        Ok(cleaned)
+        if let Err(ref e) = result {
+            eprintln!("[Typr] Transcription pipeline error (state reset to Ready): {}", e);
+            let _ = app.emit("transcription-error", e.clone());
+        }
+
+        result
     }
 }
 
