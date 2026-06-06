@@ -62,7 +62,7 @@ impl AudioRecorder {
 
         let host = cpal::default_host();
 
-        let device = if mic_name == "default" {
+        let device = if mic_name.is_empty() || mic_name == "default" {
             host.default_input_device()
                 .ok_or("No default input device found")?
         } else {
