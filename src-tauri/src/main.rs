@@ -127,7 +127,7 @@ async fn do_toggle_recording_format(
     }
 }
 
-/// Shared logic for the primary hotkey — respects settings.formatter.
+/// Shared logic for the primary hotkey — always uses AI formatting.
 async fn do_toggle_recording(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -135,26 +135,20 @@ async fn do_toggle_recording(
     let current_state = state.recorder.get_state();
     match current_state {
         RecordingState::Ready => {
-            let (mic, use_ai) = {
-                let s = state.settings.lock().unwrap();
-                (s.microphone.clone(), s.formatter == "ai")
-            };
+            let mic = state.settings.lock().unwrap().microphone.clone();
             state.recorder.start_recording(app, &mic)?;
-            if use_ai {
-                if let Some(overlay) = app.get_webview_window("overlay") {
-                    let _ = overlay.eval(
-                        "document.getElementById('bar')?.setAttribute('data-format-mode', 'true');"
-                    );
-                }
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = overlay.eval(
+                    "document.getElementById('bar')?.setAttribute('data-format-mode', 'true');"
+                );
             }
             Ok("recording".to_string())
         }
         RecordingState::Recording => {
             let settings = state.settings.lock().unwrap().clone();
-            let use_ai = settings.formatter == "ai";
             let result = state
                 .recorder
-                .stop_and_transcribe(app, &settings, &state.app_dir, use_ai)
+                .stop_and_transcribe(app, &settings, &state.app_dir, true)
                 .await?;
             Ok(result)
         }

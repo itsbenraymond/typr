@@ -144,14 +144,21 @@ impl Recorder {
                 recorder.stop_and_save(&temp_path)?;
             }
 
-            // Transcribe
+            // Transcribe — cloud falls back to local on failure
             let raw_text = match settings.engine.as_str() {
                 "local" => {
                     let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
                     transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
                 }
                 "cloud" => {
-                    transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await?
+                    match transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await {
+                        Ok(text) => text,
+                        Err(e) => {
+                            eprintln!("[Typr] Cloud transcription failed ({}), falling back to local", e);
+                            let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
+                            transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
+                        }
+                    }
                 }
                 _ => return Err(format!("Unknown engine: {}", settings.engine)),
             };
