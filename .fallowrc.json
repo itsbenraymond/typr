@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignoreDependencies": [
+    "@tauri-apps/plugin-global-shortcut",
+    "@tauri-apps/plugin-shell"
+  ]
+}
