@@ -19,67 +19,34 @@
         width: 100vw;
       }
 
+      /* ── New bar — OpenWhispr solid-black pill ───────────── */
       .bar {
         display: flex;
         align-items: center;
-        gap: 10px;
-        height: 44px;
-        padding: 0 8px;
-        border-radius: 999px;
-        background: rgba(20, 20, 22, 0.92);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-      }
-
-      .btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        border: none;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
         justify-content: center;
-        background: rgba(255, 255, 255, 0.08);
-        color: #ececef;
-        transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
-        flex-shrink: 0;
-        padding: 0;
+        height: 44px;
+        min-width: 120px;
+        padding: 0 20px;
+        border-radius: 9999px;
+        background: #000;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
       }
-      .btn:hover { background: rgba(255, 255, 255, 0.16); }
-      .btn:active { transform: scale(0.92); }
-      .btn:disabled { opacity: 0.35; cursor: default; }
-      .btn:disabled:hover { background: rgba(255, 255, 255, 0.08); }
 
-      .btn svg { width: 12px; height: 12px; }
-
-      .btn.stop {
-        background: #e5484d;
-      }
-      .btn.stop:hover { background: #f25257; }
-      .btn.stop svg rect { fill: #fff; }
-
-      /* ── Waveform ─────────────────────────────────────── */
-
+      /* ── Waveform — typr 12-bar adaptive engine ──────────── */
       .wave {
-        flex: 1;
         height: 28px;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 3px;
-        padding: 0 6px;
-        min-width: 140px;
       }
 
       .wave span {
         display: block;
         width: 3px;
         height: 100%;
-        background: rgba(255, 255, 255, 0.92);
-        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 9999px;
         transform-origin: center;
         transform: scaleY(0.08);
         opacity: 0.55;
@@ -89,7 +56,6 @@
       /* ── Recording: JS-driven inline transforms; no CSS animation ── */
 
       /* ── Transcribing: amber pulse, JS levels disabled ───────────── */
-
       .bar[data-state="transcribing"] .wave span {
         background: #f5a623;
         animation: wave 0.6s ease-in-out infinite;
@@ -111,8 +77,6 @@
         0%, 100% { transform: scaleY(0.22); opacity: 0.55; }
         50%      { transform: scaleY(1.0);  opacity: 1; }
       }
-
-      .bar[data-state="transcribing"] .btn { opacity: 0.35; cursor: default; pointer-events: none; }
 
       /* AI format mode — amber waveform during recording */
       .bar[data-format-mode="true"][data-state="recording"] .wave span {
@@ -141,36 +105,21 @@
         background: #e5484d;
         animation: wave 0.4s ease-in-out infinite;
       }
-      .bar[data-state="error"] .btn { opacity: 0.35; cursor: default; pointer-events: none; }
     </style>
   </head>
   <body>
     <div class="bar" id="bar" data-state="recording">
-      <button class="btn cancel" id="cancel-btn" title="Cancel">
-        <svg viewBox="0 0 12 12" fill="none">
-          <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-        </svg>
-      </button>
-
       <div class="wave" aria-hidden="true">
         <span></span><span></span><span></span><span></span>
         <span></span><span></span><span></span><span></span>
         <span></span><span></span><span></span><span></span>
       </div>
-
-      <button class="btn stop" id="stop-btn" title="Stop and send">
-        <svg viewBox="0 0 12 12">
-          <rect x="3" y="3" width="6" height="6" rx="1" />
-        </svg>
-      </button>
     </div>
 
     <script>
       const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 
       const bar = document.getElementById('bar');
-      const cancelBtn = document.getElementById('cancel-btn');
-      const stopBtn = document.getElementById('stop-btn');
       const bars = Array.from(document.querySelectorAll('.wave span'));
 
       // Sliding window: newest level lands on the rightmost bar, scrolls left.
@@ -260,18 +209,15 @@
       });
       obs.observe(bar, { attributes: true, attributeFilter: ['data-state'] });
 
-      cancelBtn.addEventListener('click', async (e) => {
-        e.preventDefault();
+      // Button-less pill (OpenWhispr B look). Controls stay reachable by key:
+      //   Stop + send  → the global record hotkey toggles recording off (main.rs).
+      //   Cancel       → Escape, since cancel has no global shortcut.
+      window.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Escape') return;
         if (bar.getAttribute('data-state') !== 'recording') return;
+        e.preventDefault();
         try { await invoke('cancel_recording'); }
         catch (err) { console.error('[Typr] cancel_recording failed:', err); }
-      });
-
-      stopBtn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        if (bar.getAttribute('data-state') !== 'recording') return;
-        try { await invoke('toggle_recording'); }
-        catch (err) { console.error('[Typr] toggle_recording failed:', err); }
       });
 
       window.__TAURI__.event.listen('format-error', () => {
