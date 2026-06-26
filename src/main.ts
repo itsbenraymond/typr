@@ -9,7 +9,6 @@ interface Settings {
   groqApiKey: string;
   recordingMode: string;
   hotkey: string;
-  formatter: string;
 }
 
 interface MicDevice {
@@ -38,8 +37,6 @@ const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
-const formatterToggle = document.getElementById("formatter-toggle") as HTMLInputElement;
-const formatterLabel = formatterToggle.nextElementSibling!.nextElementSibling as HTMLElement;
 const hotkeyText = document.getElementById("hotkey-text")!;
 
 // Section navigation
@@ -100,9 +97,6 @@ async function loadSettings() {
   // Recording mode
   setRecordingMode(currentSettings.recordingMode);
 
-  // Formatter
-  setFormatter(currentSettings.formatter ?? "ai");
-
   // Hotkey
   hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Ctrl");
 }
@@ -119,12 +113,6 @@ function setRecordingMode(mode: string) {
   currentSettings.recordingMode = mode;
   modeToggle.classList.toggle("active", mode === "toggle");
   modePtt.classList.toggle("active", mode === "push-to-talk");
-}
-
-function setFormatter(fmt: string) {
-  currentSettings.formatter = fmt;
-  formatterToggle.checked = fmt === "ai";
-  formatterLabel.textContent = fmt === "ai" ? "On" : "Off";
 }
 
 async function checkModelStatus() {
@@ -185,11 +173,6 @@ modeToggle.addEventListener("click", () => {
 
 modePtt.addEventListener("click", () => {
   setRecordingMode("push-to-talk");
-  saveSettings();
-});
-
-formatterToggle.addEventListener("change", () => {
-  setFormatter(formatterToggle.checked ? "ai" : "quick");
   saveSettings();
 });
 
