@@ -198,12 +198,14 @@
         catch (err) { console.error('[Typr] cancel_recording failed:', err); }
       });
 
-      window.__TAURI__.event.listen('format-error', () => {
+      const flashError = () => {
         bar.setAttribute('data-state', 'error');
         setTimeout(() => {
           bar.setAttribute('data-state', 'ready');
         }, 1500);
-      });
+      };
+      window.__TAURI__.event.listen('format-error', flashError);
+      window.__TAURI__.event.listen('transcription-error', flashError);
     </script>
   </body>
 </html>

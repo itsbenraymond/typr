@@ -126,5 +126,11 @@ listen<string>("format-error", (event) => {
   console.warn("[Typr] Groq format error:", event.payload);
 });
 
+// Surface transcription failures — Groq is the only backend now, so a failure
+// here is terminal (no local fallback). Flash the pill via overlay + log here.
+listen<string>("transcription-error", (event) => {
+  console.error("[Typr] Transcription failed:", event.payload);
+});
+
 // Initialize
 loadSettings();
