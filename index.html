@@ -35,12 +35,6 @@
             </svg>
             General
           </a>
-          <a class="nav-item" data-section="engine">
-            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2.5 8h3l1.5-3 2 6 1.5-3h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            Engine
-          </a>
           <a class="nav-item" data-section="recording">
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="6" y="2.5" width="4" height="7" rx="2" stroke="currentColor" stroke-width="1.2"/>
@@ -70,46 +64,7 @@
                 <select id="mic-select"></select>
               </div>
             </div>
-          </div>
-        </section>
-
-        <section id="section-engine" class="content-section">
-          <div class="section-header">
-            <h2 class="section-title">Engine</h2>
-            <p class="section-desc">Choose your transcription backend</p>
-          </div>
-          <div class="settings-list">
-            <div class="setting-row">
-              <div class="setting-label">
-                <span class="label-text">Transcription Engine</span>
-                <span class="label-hint">Local runs on-device, Cloud requires an API key</span>
-              </div>
-              <div class="setting-control">
-                <div class="toggle-group">
-                  <button id="engine-local" class="toggle-btn active">Local Whisper</button>
-                  <button id="engine-cloud" class="toggle-btn">Groq Cloud</button>
-                </div>
-              </div>
-            </div>
-            <div class="setting-row" id="local-settings">
-              <div class="setting-label">
-                <span class="label-text">Model Size</span>
-                <span class="label-hint">Larger models are more accurate but use more resources</span>
-              </div>
-              <div class="setting-control">
-                <div class="model-row">
-                  <select id="model-select">
-                    <option value="small">Small (~466 MB)</option>
-                    <option value="medium">Medium (~1.5 GB)</option>
-                  </select>
-                  <button id="download-btn" class="btn-primary">Download</button>
-                </div>
-              </div>
-            </div>
-            <div id="download-progress" class="hidden">
-              <div id="progress-bar"><div id="progress-fill"></div></div>
-            </div>
-            <div class="setting-row hidden" id="cloud-settings">
+            <div class="setting-row" id="cloud-settings">
               <div class="setting-label">
                 <span class="label-text">Groq API Key</span>
                 <span class="label-hint">Get your key from console.groq.com</span>

@@ -6,8 +6,6 @@ use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::paste::{get_focused_hwnd, paste_text};
 use crate::settings::Settings;
-use crate::transcribe_local;
-use crate::transcribe_groq;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
@@ -144,24 +142,13 @@ impl Recorder {
                 recorder.stop_and_save(&temp_path)?;
             }
 
-            // Transcribe — cloud falls back to local on failure
-            let raw_text = match settings.engine.as_str() {
-                "local" => {
-                    let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
-                    transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
-                }
-                "cloud" => {
-                    match transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await {
-                        Ok(text) => text,
-                        Err(e) => {
-                            eprintln!("[Typr] Cloud transcription failed ({}), falling back to local", e);
-                            let model_path = app_dir.join(transcribe_local::model_filename(&settings.whisper_model));
-                            transcribe_local::transcribe_local(app, &model_path, &temp_path).await?
-                        }
-                    }
-                }
-                _ => return Err(format!("Unknown engine: {}", settings.engine)),
+            // Transcribe via the Transcriber seam (Groq-backed by default).
+            let transcriber = crate::groq_adapter::default_transcriber();
+            let opts = crate::transcriber::TranscribeOpts {
+                api_key: settings.groq_api_key.clone(),
+                language: "en".to_string(),
             };
+            let raw_text = transcriber.transcribe(&temp_path, &opts).await?;
 
             // Cleanup temp file
             let _ = std::fs::remove_file(&temp_path);

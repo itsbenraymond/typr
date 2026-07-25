@@ -8,10 +8,8 @@ use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use typr_lib::audio;
-use typr_lib::downloader;
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::settings::Settings;
-use typr_lib::transcribe_local;
 
 struct AppState {
     recorder: Recorder,
@@ -45,24 +43,6 @@ fn list_microphones() -> Vec<audio::MicDevice> {
 #[tauri::command]
 fn get_recording_state(state: State<AppState>) -> RecordingState {
     state.recorder.get_state()
-}
-
-#[tauri::command]
-fn check_model_downloaded(state: State<AppState>, model_size: String) -> bool {
-    let model_file = transcribe_local::model_filename(&model_size);
-    state.app_dir.join(&model_file).exists()
-}
-
-#[tauri::command]
-async fn download_model(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    model_size: String,
-) -> Result<(), String> {
-    let url = transcribe_local::model_download_url(&model_size);
-    let model_file = transcribe_local::model_filename(&model_size);
-    let dest = state.app_dir.join(&model_file);
-    downloader::download_model(app, &url, &dest).await
 }
 
 #[tauri::command]
@@ -125,8 +105,6 @@ fn main() {
             save_settings,
             list_microphones,
             get_recording_state,
-            check_model_downloaded,
-            download_model,
             toggle_recording,
             cancel_recording,
         ])

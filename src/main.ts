@@ -4,8 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface Settings {
   microphone: string;
-  engine: string;
-  whisperModel: string;
   groqApiKey: string;
   recordingMode: string;
   hotkey: string;
@@ -16,24 +14,10 @@ interface MicDevice {
   is_default: boolean;
 }
 
-interface DownloadProgress {
-  downloaded: number;
-  total: number;
-  percent: number;
-}
-
 // DOM elements
 const statusDot = document.getElementById("status-dot")!;
 const statusText = document.getElementById("status-text")!;
 const micSelect = document.getElementById("mic-select") as HTMLSelectElement;
-const engineLocal = document.getElementById("engine-local")!;
-const engineCloud = document.getElementById("engine-cloud")!;
-const localSettings = document.getElementById("local-settings")!;
-const cloudSettings = document.getElementById("cloud-settings")!;
-const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
-const downloadBtn = document.getElementById("download-btn")!;
-const downloadProgress = document.getElementById("download-progress")!;
-const progressFill = document.getElementById("progress-fill")!;
 const groqKey = document.getElementById("groq-key") as HTMLInputElement;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
@@ -84,13 +68,6 @@ async function loadSettings() {
   });
   micSelect.value = currentSettings.microphone;
 
-  // Engine
-  setEngine(currentSettings.engine);
-
-  // Model
-  modelSelect.value = currentSettings.whisperModel;
-  await checkModelStatus();
-
   // Groq key
   groqKey.value = currentSettings.groqApiKey;
 
@@ -101,68 +78,20 @@ async function loadSettings() {
   hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Ctrl");
 }
 
-function setEngine(engine: string) {
-  currentSettings.engine = engine;
-  engineLocal.classList.toggle("active", engine === "local");
-  engineCloud.classList.toggle("active", engine === "cloud");
-  localSettings.classList.toggle("hidden", engine !== "local");
-  cloudSettings.classList.toggle("hidden", engine !== "cloud");
-}
-
 function setRecordingMode(mode: string) {
   currentSettings.recordingMode = mode;
   modeToggle.classList.toggle("active", mode === "toggle");
   modePtt.classList.toggle("active", mode === "push-to-talk");
 }
 
-async function checkModelStatus() {
-  const downloaded = await invoke<boolean>("check_model_downloaded", {
-    modelSize: modelSelect.value,
-  });
-  downloadBtn.textContent = downloaded ? "\u2713" : "Download";
-  (downloadBtn as HTMLButtonElement).disabled = downloaded;
-}
-
 async function saveSettings() {
   currentSettings.microphone = micSelect.value;
-  currentSettings.whisperModel = modelSelect.value;
   currentSettings.groqApiKey = groqKey.value;
   await invoke("save_settings", { settings: currentSettings });
 }
 
 // Event listeners
-engineLocal.addEventListener("click", () => {
-  setEngine("local");
-  saveSettings();
-});
-
-engineCloud.addEventListener("click", () => {
-  setEngine("cloud");
-  saveSettings();
-});
-
 micSelect.addEventListener("change", () => saveSettings());
-
-modelSelect.addEventListener("change", async () => {
-  await checkModelStatus();
-  saveSettings();
-});
-
-downloadBtn.addEventListener("click", async () => {
-  (downloadBtn as HTMLButtonElement).disabled = true;
-  downloadProgress.classList.remove("hidden");
-  progressFill.style.width = "0%";
-
-  try {
-    await invoke("download_model", { modelSize: modelSelect.value });
-    downloadBtn.textContent = "\u2713";
-  } catch (e) {
-    downloadBtn.textContent = "Retry";
-    (downloadBtn as HTMLButtonElement).disabled = false;
-    console.error("Download failed:", e);
-  }
-  downloadProgress.classList.add("hidden");
-});
 
 groqKey.addEventListener("change", () => saveSettings());
 
@@ -190,12 +119,6 @@ listen<string>("recording-state", (event) => {
     statusDot.classList.add("ready");
     statusText.textContent = "Ready";
   }
-});
-
-// Listen for download progress
-listen<DownloadProgress>("download-progress", (event) => {
-  const { percent } = event.payload;
-  progressFill.style.width = `${percent}%`;
 });
 
 // Log Groq format errors for debugging
