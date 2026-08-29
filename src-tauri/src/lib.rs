@@ -7,6 +7,26 @@ pub mod cleanup;
 pub mod format_groq;
 pub mod paste;
 pub mod recorder;
+pub mod applog;
+
+/// A single panic anywhere while holding one of our Mutexes (most likely the
+/// cpal audio-callback thread, which fires continuously during recording and
+/// runs on an OS-managed real-time thread outside our control) poisons that
+/// Mutex forever. Every later `.lock().unwrap()` on it then panics too — and
+/// since release builds run under `windows_subsystem = "windows"` (no
+/// console), that panic is invisible: the app looks alive in the tray but
+/// the hotkey silently stops doing anything. Recovering the inner value
+/// instead of propagating the poison keeps the app usable after a one-off
+/// panic instead of bricking it until restart.
+pub trait LockExt<T> {
+    fn lock_safe(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockExt<T> for std::sync::Mutex<T> {
+    fn lock_safe(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

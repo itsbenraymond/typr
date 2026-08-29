@@ -6,6 +6,7 @@ use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::paste::{get_focused_hwnd, paste_text};
 use crate::settings::Settings;
+use crate::LockExt;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
@@ -49,17 +50,17 @@ impl Recorder {
     }
 
     pub fn get_state(&self) -> RecordingState {
-        self.state.lock().unwrap().clone()
+        self.state.lock_safe().clone()
     }
 
     pub fn cancel_recording(&self, app: &AppHandle) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_safe();
         if *state != RecordingState::Recording {
             return Err("Not currently recording".to_string());
         }
 
         {
-            let mut recorder = self.audio_recorder.lock().unwrap();
+            let mut recorder = self.audio_recorder.lock_safe();
             recorder.cancel();
         }
 
@@ -70,17 +71,17 @@ impl Recorder {
     }
 
     pub fn start_recording(&self, app: &AppHandle, mic_name: &str) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock_safe();
         if *state != RecordingState::Ready {
             return Err("Already recording or transcribing".to_string());
         }
 
         // Snapshot cursor position now, before the overlay shows, so we know
         // which input field the user had focused when they triggered the hotkey.
-        *self.focused_hwnd.lock().unwrap() = get_focused_hwnd();
+        *self.focused_hwnd.lock_safe() = get_focused_hwnd();
 
         let level_arc = {
-            let mut recorder = self.audio_recorder.lock().unwrap();
+            let mut recorder = self.audio_recorder.lock_safe();
             recorder.start(mic_name)?;
             recorder.level.clone()
         };
@@ -94,11 +95,11 @@ impl Recorder {
         let state_arc = self.state.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(33));
-            let s = state_arc.lock().unwrap().clone();
+            let s = state_arc.lock_safe().clone();
             if s != RecordingState::Recording {
                 break;
             }
-            let level = *level_arc.lock().unwrap();
+            let level = *level_arc.lock_safe();
             if let Some(overlay) = app_clone.get_webview_window("overlay") {
                 let js = format!(
                     "window.__pushLevel && window.__pushLevel({:.5});",
@@ -120,7 +121,7 @@ impl Recorder {
     ) -> Result<String, String> {
         // Stop recording
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock_safe();
             if *state != RecordingState::Recording {
                 return Err("Not currently recording".to_string());
             }
@@ -138,7 +139,7 @@ impl Recorder {
 
             // Save audio
             {
-                let mut recorder = self.audio_recorder.lock().unwrap();
+                let mut recorder = self.audio_recorder.lock_safe();
                 recorder.stop_and_save(&temp_path)?;
             }
 
@@ -159,7 +160,7 @@ impl Recorder {
                 match crate::format_groq::format_text(&settings.groq_api_key, &noise_cleaned).await {
                     Ok(formatted) => formatted,
                     Err(e) => {
-                        eprintln!("[Typr] Groq format failed: {}", e);
+                        crate::applog::log(&format!("Groq format failed: {}", e));
                         let _ = app.emit("format-error", e);
                         cleanup_text(&raw_text)
                     }
@@ -178,7 +179,7 @@ impl Recorder {
             // Auto-paste — re-click the original cursor position so the correct
             // input field has focus before Ctrl+V fires.
             if !cleaned.is_empty() {
-                let saved_hwnd = *self.focused_hwnd.lock().unwrap();
+                let saved_hwnd = *self.focused_hwnd.lock_safe();
                 paste_text(&cleaned, saved_hwnd)?;
             }
 
@@ -190,14 +191,14 @@ impl Recorder {
         // This is the fix: previously only the success path reset state,
         // leaving it permanently stuck at Transcribing on any failure.
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock_safe();
             *state = RecordingState::Ready;
             let _ = app.emit("recording-state", RecordingState::Ready);
             update_overlay(app, &RecordingState::Ready);
         }
 
         if let Err(ref e) = result {
-            eprintln!("[Typr] Transcription pipeline error (state reset to Ready): {}", e);
+            crate::applog::log(&format!("Transcription pipeline error (state reset to Ready): {}", e));
             let _ = app.emit("transcription-error", e.clone());
         }
 

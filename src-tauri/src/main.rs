@@ -10,6 +10,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use typr_lib::audio;
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::settings::Settings;
+use typr_lib::applog;
+use typr_lib::LockExt;
 
 struct AppState {
     recorder: Recorder,
@@ -25,13 +27,13 @@ fn get_app_dir() -> PathBuf {
 
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Settings {
-    state.settings.lock().unwrap().clone()
+    state.settings.lock_safe().clone()
 }
 
 #[tauri::command]
 fn save_settings(state: State<AppState>, settings: Settings) -> Result<(), String> {
     settings.save(&state.app_dir)?;
-    *state.settings.lock().unwrap() = settings;
+    *state.settings.lock_safe() = settings;
     Ok(())
 }
 
@@ -69,12 +71,12 @@ async fn do_toggle_recording(
     let current_state = state.recorder.get_state();
     match current_state {
         RecordingState::Ready => {
-            let mic = state.settings.lock().unwrap().microphone.clone();
+            let mic = state.settings.lock_safe().microphone.clone();
             state.recorder.start_recording(app, &mic)?;
             Ok("recording".to_string())
         }
         RecordingState::Recording => {
-            let settings = state.settings.lock().unwrap().clone();
+            let settings = state.settings.lock_safe().clone();
             let result = state
                 .recorder
                 .stop_and_transcribe(app, &settings, &state.app_dir, true)
@@ -89,6 +91,16 @@ async fn do_toggle_recording(
 
 fn main() {
     let app_dir = get_app_dir();
+    applog::init(&app_dir);
+
+    // Heartbeat — proves the process (and its message loop) is still alive
+    // and pumping while idle, so a "stopped working" report can be told
+    // apart from a hung/crashed process vs. an OS-level hotkey deregistration.
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(600));
+        applog::log("heartbeat: process alive");
+    });
+
     let settings = Settings::load(&app_dir);
     let initial_hotkey = settings.hotkey.clone();
 
@@ -200,16 +212,16 @@ fn main() {
 
             let handle = app.handle().clone();
 
-            println!("[Typr] Registering global shortcut: {}", initial_hotkey);
+            applog::log(&format!("Registering global shortcut: {}", initial_hotkey));
 
             match app.global_shortcut().on_shortcut(
                 initial_hotkey.as_str(),
                 move |_app, shortcut, event| {
-                    println!("[Typr] Hotkey event: {:?} state={:?}", shortcut, event.state);
+                    applog::log(&format!("Hotkey event: {:?} state={:?}", shortcut, event.state));
                     let handle = handle.clone();
                     let state = handle.state::<AppState>();
-                    let mode = state.settings.lock().unwrap().recording_mode.clone();
-                    println!("[Typr] Recording mode: {}", mode);
+                    let mode = state.settings.lock_safe().recording_mode.clone();
+                    applog::log(&format!("Recording mode: {}", mode));
 
                     match event.state {
                         ShortcutState::Pressed => {
@@ -217,25 +229,22 @@ fn main() {
                                 let state = handle.state::<AppState>();
                                 match mode.as_str() {
                                     "toggle" => {
-                                        println!("[Typr] Toggle mode: calling do_toggle_recording");
                                         match do_toggle_recording(&handle, state.inner()).await {
-                                            Ok(result) => println!("[Typr] Toggle result: {}", result),
-                                            Err(e) => eprintln!("[Typr] Toggle error: {}", e),
+                                            Ok(result) => applog::log(&format!("Toggle result: {}", result)),
+                                            Err(e) => applog::log(&format!("Toggle error: {}", e)),
                                         }
                                     }
                                     "push-to-talk" => {
                                         let current = state.recorder.get_state();
-                                        println!("[Typr] PTT mode, current state: {:?}", current);
                                         if current == RecordingState::Ready {
                                             let mic = state
                                                 .settings
-                                                .lock()
-                                                .unwrap()
+                                                .lock_safe()
                                                 .microphone
                                                 .clone();
                                             match state.recorder.start_recording(&handle, &mic) {
-                                                Ok(_) => println!("[Typr] Recording started"),
-                                                Err(e) => eprintln!("[Typr] Start recording error: {}", e),
+                                                Ok(_) => applog::log("Recording started"),
+                                                Err(e) => applog::log(&format!("Start recording error: {}", e)),
                                             }
                                         }
                                     }
@@ -250,15 +259,15 @@ fn main() {
                                     let current = state.recorder.get_state();
                                     if current == RecordingState::Recording {
                                         let settings =
-                                            state.settings.lock().unwrap().clone();
+                                            state.settings.lock_safe().clone();
                                         match state.recorder.stop_and_transcribe(
                                             &handle,
                                             &settings,
                                             &state.app_dir,
                                             true,
                                         ).await {
-                                            Ok(result) => println!("[Typr] Transcription: {}", result),
-                                            Err(e) => eprintln!("[Typr] Transcription error: {}", e),
+                                            Ok(result) => applog::log(&format!("Transcription: {}", result)),
+                                            Err(e) => applog::log(&format!("Transcription error: {}", e)),
                                         }
                                     }
                                 });
@@ -267,8 +276,8 @@ fn main() {
                     }
                 },
             ) {
-                Ok(_) => println!("[Typr] Global shortcut registered successfully"),
-                Err(e) => eprintln!("[Typr] ERROR: Failed to register global shortcut: {}", e),
+                Ok(_) => applog::log("Global shortcut registered successfully"),
+                Err(e) => applog::log(&format!("ERROR: Failed to register global shortcut: {}", e)),
             }
 
             Ok(())

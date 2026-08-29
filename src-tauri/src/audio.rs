@@ -2,6 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{WavSpec, WavWriter};
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use crate::LockExt;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MicDevice {
@@ -58,7 +59,7 @@ impl AudioRecorder {
 
     pub fn start(&mut self, mic_name: &str) -> Result<(), String> {
         // Clear any leftover samples from previous recording
-        self.samples.lock().unwrap().clear();
+        self.samples.lock_safe().clear();
 
         let host = cpal::default_host();
 
@@ -93,7 +94,7 @@ impl AudioRecorder {
 
         let samples = self.samples.clone();
         let level = self.level.clone();
-        *level.lock().unwrap() = 0.0;
+        *level.lock_safe() = 0.0;
         let stream = device
             .build_input_stream(
                 &config,
@@ -101,9 +102,9 @@ impl AudioRecorder {
                     if !data.is_empty() {
                         let sum_sq: f32 = data.iter().map(|x| x * x).sum();
                         let rms = (sum_sq / data.len() as f32).sqrt();
-                        *level.lock().unwrap() = rms;
+                        *level.lock_safe() = rms;
                     }
-                    let mut buf = samples.lock().unwrap();
+                    let mut buf = samples.lock_safe();
                     buf.extend_from_slice(data);
                 },
                 |err| {
@@ -121,7 +122,7 @@ impl AudioRecorder {
 
     pub fn cancel(&mut self) {
         self.stream = None;
-        self.samples.lock().unwrap().clear();
+        self.samples.lock_safe().clear();
         println!("[Typr] Audio recording cancelled");
     }
 
@@ -129,7 +130,7 @@ impl AudioRecorder {
         self.stream = None; // Drop stops the stream
         println!("[Typr] Audio recording stopped");
 
-        let samples = self.samples.lock().unwrap();
+        let samples = self.samples.lock_safe();
         if samples.is_empty() {
             return Err("No audio captured".to_string());
         }
@@ -165,7 +166,7 @@ impl AudioRecorder {
         writer.finalize().map_err(|e| e.to_string())?;
 
         drop(samples);
-        self.samples.lock().unwrap().clear();
+        self.samples.lock_safe().clear();
 
         println!("[Typr] WAV saved to {:?}", output_path);
         Ok(output_path.clone())
