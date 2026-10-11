@@ -16,21 +16,10 @@ pub enum RecordingState {
 }
 
 fn update_overlay(app: &AppHandle, state: &RecordingState) {
-    if let Some(overlay) = app.get_webview_window("overlay") {
-        match state {
-            RecordingState::Ready => {
-                let _ = overlay.hide();
-                let _ = overlay.eval("document.getElementById('bar')?.setAttribute('data-state', 'ready');");
-            }
-            RecordingState::Recording => {
-                let _ = overlay.show();
-                let _ = overlay.eval("document.getElementById('bar')?.setAttribute('data-state', 'recording');");
-            }
-            RecordingState::Transcribing => {
-                let _ = overlay.show();
-                let _ = overlay.eval("document.getElementById('bar')?.setAttribute('data-state', 'transcribing');");
-            }
-        }
+    match state {
+        RecordingState::Ready => crate::overlay::hide(app),
+        RecordingState::Recording => crate::overlay::show_state(app, "recording"),
+        RecordingState::Transcribing => crate::overlay::show_state(app, "transcribing"),
     }
 }
 
@@ -100,7 +89,7 @@ impl Recorder {
                 break;
             }
             let level = *level_arc.lock_safe();
-            if let Some(overlay) = app_clone.get_webview_window("overlay") {
+            if let Some(overlay) = crate::overlay::ensure(&app_clone) {
                 let js = format!(
                     "window.__pushLevel && window.__pushLevel({:.5});",
                     level
@@ -129,6 +118,12 @@ impl Recorder {
             let _ = app.emit("recording-state", RecordingState::Transcribing);
             update_overlay(app, &RecordingState::Transcribing);
         }
+
+        // Anything the user needs told about that is not a hard failure —
+        // e.g. the AI cleanup fell over and we pasted the plainer fallback.
+        // Collected here because the pipeline closure returns only the text,
+        // and the pill can only be flashed after state is back to Ready.
+        let soft_warning: Mutex<Option<String>> = Mutex::new(None);
 
         // Run the whole pipeline in a closure so we can guarantee state is
         // reset to Ready afterwards — whether the pipeline succeeds or fails.
@@ -162,6 +157,11 @@ impl Recorder {
                     Err(e) => {
                         crate::applog::log(&format!("Groq format failed: {}", e));
                         let _ = app.emit("format-error", e);
+                        // For weeks this branch was taken on every single
+                        // dictation (the configured model had been
+                        // decommissioned) and nothing on screen said so, so
+                        // raw transcripts looked like the intended output.
+                        *soft_warning.lock_safe() = Some("AI cleanup failed - pasted raw".into());
                         cleanup_text(&raw_text)
                     }
                 }
@@ -170,7 +170,7 @@ impl Recorder {
             };
 
             // Clear format-mode attribute on overlay
-            if let Some(overlay) = app.get_webview_window("overlay") {
+            if let Some(overlay) = app.get_webview_window(crate::overlay::LABEL) {
                 let _ = overlay.eval(
                     "document.getElementById('bar')?.removeAttribute('data-format-mode');"
                 );
@@ -197,9 +197,20 @@ impl Recorder {
             update_overlay(app, &RecordingState::Ready);
         }
 
-        if let Err(ref e) = result {
-            crate::applog::log(&format!("Transcription pipeline error (state reset to Ready): {}", e));
-            let _ = app.emit("transcription-error", e.clone());
+        match &result {
+            Err(e) => {
+                crate::applog::log(&format!(
+                    "Transcription pipeline error (state reset to Ready): {}",
+                    e
+                ));
+                let _ = app.emit("transcription-error", e.clone());
+                crate::overlay::flash_error(app, e);
+            }
+            Ok(_) => {
+                if let Some(warning) = soft_warning.lock_safe().take() {
+                    crate::overlay::flash_error(app, &warning);
+                }
+            }
         }
 
         result

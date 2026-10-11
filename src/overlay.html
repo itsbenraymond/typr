@@ -78,11 +78,28 @@
         50%      { transform: scaleY(1.0);  opacity: 1; }
       }
 
-      /* Error state — red flash */
+      /* Error state — red flash, and say what went wrong.
+         A wordless red pill told Ben something failed but never which
+         thing, which is how a dead AI-cleanup model went unnoticed for
+         weeks: the pill looked normal because the fallback still pasted. */
       .bar[data-state="error"] .wave span {
         background: #e5484d;
         animation: wave 0.4s ease-in-out infinite;
       }
+      .bar[data-state="error"] .wave { display: none; }
+      .msg {
+        display: none;
+        color: #fff;
+        font-size: 12.5px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 240px;
+      }
+      .bar[data-state="error"] .msg { display: block; }
+      .bar[data-state="error"] { background: #1a0d0e; box-shadow: 0 4px 24px rgba(229,72,77,0.35); }
     </style>
   </head>
   <body>
@@ -92,6 +109,7 @@
         <span></span><span></span><span></span><span></span>
         <span></span><span></span><span></span><span></span>
       </div>
+      <div class="msg" id="msg"></div>
     </div>
 
     <script>
@@ -198,12 +216,37 @@
         catch (err) { console.error('[Typr] cancel_recording failed:', err); }
       });
 
-      const flashError = () => {
+      const msgEl = document.getElementById('msg');
+
+      // Called from Rust (overlay::flash_error) with the actual reason.
+      window.__showError = (text) => {
+        msgEl.textContent = text || 'Something went wrong';
         bar.setAttribute('data-state', 'error');
-        setTimeout(() => {
-          bar.setAttribute('data-state', 'ready');
-        }, 1500);
       };
+
+      const flashError = (event) => {
+        const detail = typeof event?.payload === 'string' ? event.payload : '';
+        window.__showError(shorten(detail));
+        setTimeout(() => {
+          if (bar.getAttribute('data-state') === 'error') {
+            bar.setAttribute('data-state', 'ready');
+          }
+        }, 2600);
+      };
+
+      // Raw API errors are long and start with plumbing. Keep the part a human
+      // can act on and drop the rest.
+      function shorten(detail) {
+        if (!detail) return 'Dictation failed';
+        if (/API key/i.test(detail)) return 'Add your Groq API key in Settings';
+        if (/model_not_found|does not exist/i.test(detail)) return 'AI model unavailable';
+        if (/timed out|timeout/i.test(detail)) return 'Groq timed out';
+        if (/401|403|invalid.?api.?key/i.test(detail)) return 'Groq rejected the API key';
+        if (/429|rate.?limit/i.test(detail)) return 'Groq rate limit hit';
+        if (/dns|network|connect/i.test(detail)) return 'No connection to Groq';
+        return detail.length > 48 ? detail.slice(0, 45) + '...' : detail;
+      }
+
       window.__TAURI__.event.listen('format-error', flashError);
       window.__TAURI__.event.listen('transcription-error', flashError);
     </script>

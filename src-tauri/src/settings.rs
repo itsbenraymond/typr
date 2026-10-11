@@ -2,23 +2,50 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+fn default_microphone() -> String {
+    "default".to_string()
+}
+fn default_recording_mode() -> String {
+    "toggle".to_string()
+}
+fn default_hotkey() -> String {
+    "CmdOrCtrl+Shift+Space".to_string()
+}
+fn default_autostart() -> bool {
+    true
+}
+
+/// Every field carries `#[serde(default)]` on purpose.
+///
+/// `load` falls back to `Settings::default()` when parsing fails, so a struct
+/// that rejects an older `config.json` (one missing a field added later) would
+/// silently wipe Ben's saved Groq key and mic choice on the first run of a new
+/// build. Per-field defaults mean an old config is upgraded in place instead.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
+    #[serde(default = "default_microphone")]
     pub microphone: String,
-    #[serde(rename = "groqApiKey")]
+    #[serde(rename = "groqApiKey", default)]
     pub groq_api_key: String,
-    #[serde(rename = "recordingMode")]
+    #[serde(rename = "recordingMode", default = "default_recording_mode")]
     pub recording_mode: String,
+    #[serde(default = "default_hotkey")]
     pub hotkey: String,
+    /// Start Typr when Windows starts. On by default — Ben uses it constantly
+    /// and an idle tray app he has to remember to launch is an app that is off
+    /// exactly when he reaches for the hotkey.
+    #[serde(default = "default_autostart")]
+    pub autostart: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            microphone: "default".to_string(),
+            microphone: default_microphone(),
             groq_api_key: String::new(),
-            recording_mode: "toggle".to_string(),
-            hotkey: "CmdOrCtrl+Shift+Space".to_string(),
+            recording_mode: default_recording_mode(),
+            hotkey: default_hotkey(),
+            autostart: default_autostart(),
         }
     }
 }
@@ -56,6 +83,7 @@ mod tests {
         assert_eq!(settings.groq_api_key, "");
         assert_eq!(settings.recording_mode, "toggle");
         assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+Space");
+        assert!(settings.autostart);
     }
 
     #[test]
@@ -91,6 +119,37 @@ mod tests {
 
         let settings = Settings::load(&dir);
         assert_eq!(settings, Settings::default());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The real config.json on Ben's machine, written by an older build: it has
+    /// dead fields (`engine`, `whisperModel`, `formatter`) and none of the ones
+    /// added since. Loading it must keep the API key, not reset to defaults.
+    #[test]
+    fn test_load_legacy_config_preserves_api_key() {
+        let dir = temp_dir().join("typr_test_legacy");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config.json"),
+            r#"{
+              "microphone": "",
+              "engine": "cloud",
+              "whisperModel": "small",
+              "groqApiKey": "gsk_legacy_key",
+              "recordingMode": "toggle",
+              "hotkey": "CmdOrCtrl+Shift+Space",
+              "formatter": "ai"
+            }"#,
+        )
+        .unwrap();
+
+        let settings = Settings::load(&dir);
+        assert_eq!(settings.groq_api_key, "gsk_legacy_key");
+        assert_eq!(settings.recording_mode, "toggle");
+        // A field the old file never had still arrives at its intended default.
+        assert!(settings.autostart);
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -7,6 +7,7 @@ interface Settings {
   groqApiKey: string;
   recordingMode: string;
   hotkey: string;
+  autostart: boolean;
 }
 
 interface MicDevice {
@@ -22,6 +23,8 @@ const groqKey = document.getElementById("groq-key") as HTMLInputElement;
 const modeToggle = document.getElementById("mode-toggle")!;
 const modePtt = document.getElementById("mode-ptt")!;
 const hotkeyText = document.getElementById("hotkey-text")!;
+const autostartToggle = document.getElementById("autostart-toggle") as HTMLInputElement;
+const autostartHint = document.getElementById("autostart-hint")!;
 
 // Section navigation
 const navItems = document.querySelectorAll(".nav-item");
@@ -76,6 +79,19 @@ async function loadSettings() {
 
   // Hotkey
   hotkeyText.textContent = currentSettings.hotkey.replace("CmdOrCtrl", "Ctrl");
+
+  // Autostart — show what the OS actually has registered, not just what the
+  // config file claims. An installer upgrade or a Windows "Startup apps"
+  // toggle can drop the entry, and a switch that reads its own saved value
+  // would keep showing On while Typr silently stopped launching.
+  const osEnabled = await invoke<boolean>("autostart_is_enabled");
+  autostartToggle.checked = osEnabled;
+  if (osEnabled !== currentSettings.autostart) {
+    currentSettings.autostart = osEnabled;
+    autostartHint.textContent = osEnabled
+      ? "Typr launches on login and waits in the tray"
+      : "Off - Typr will not be running when you reach for the hotkey";
+  }
 }
 
 function setRecordingMode(mode: string) {
@@ -94,6 +110,19 @@ async function saveSettings() {
 micSelect.addEventListener("change", () => saveSettings());
 
 groqKey.addEventListener("change", () => saveSettings());
+
+autostartToggle.addEventListener("change", async () => {
+  currentSettings.autostart = autostartToggle.checked;
+  await saveSettings();
+  // Re-read the OS, because enable()/disable() can fail (locked-down policy,
+  // missing registry permission) and a toggle that moved without the OS
+  // agreeing is a lie.
+  const osEnabled = await invoke<boolean>("autostart_is_enabled");
+  autostartToggle.checked = osEnabled;
+  autostartHint.textContent = osEnabled
+    ? "Typr launches on login and waits in the tray"
+    : "Off - Typr will not be running when you reach for the hotkey";
+});
 
 modeToggle.addEventListener("click", () => {
   setRecordingMode("toggle");
