@@ -43,10 +43,25 @@ function run(cmd, args, opts = {}) {
   }
 }
 
-function ps(script) {
-  return execFileSync("powershell", ["-NoProfile", "-Command", script], {
-    encoding: "utf8",
-  }).trim();
+/**
+ * Run a PowerShell snippet.
+ *
+ * `tolerant` swallows a non-zero exit. PowerShell returns 1 when a cmdlet
+ * emits a non-terminating error even with -ErrorAction SilentlyContinue, and
+ * Stop-Process on an already-exiting process does exactly that. Letting that
+ * throw aborted a deploy *after* Typr had been stopped, leaving the machine
+ * with no dictation at all — strictly worse than either outcome the deploy
+ * was choosing between.
+ */
+function ps(script, tolerant = false) {
+  try {
+    return execFileSync("powershell", ["-NoProfile", "-Command", script], {
+      encoding: "utf8",
+    }).trim();
+  } catch (err) {
+    if (tolerant) return "";
+    throw err;
+  }
 }
 
 function logSize() {
@@ -72,7 +87,7 @@ if (!existsSync(builtExe)) {
 // ── 2. Swap the running app ───────────────────────────────────────────────
 const offset = logSize();
 console.log("→ stopping the running Typr");
-ps(`Get-Process -Name typr -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }`);
+ps(`Get-Process -Name typr -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }`, true);
 await sleep(1000);
 
 console.log(`→ installing to ${installedExe}`);
