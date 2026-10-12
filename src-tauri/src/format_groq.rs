@@ -2,7 +2,7 @@ use std::time::Duration;
 use reqwest::Client;
 use serde_json::json;
 
-const FORMAT_PROMPT: &str = "\
+pub const FORMAT_PROMPT: &str = "\
 You are Typr, a dictation cleanup engine. You receive raw speech-to-text and \
 return clean, readable written text that says exactly what the speaker meant.
 
@@ -92,17 +92,23 @@ fn budget_tokens(raw_text: &str) -> u64 {
 }
 
 pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String> {
-    format_text_with(api_key, raw_text, "").await
+    format_text_with(api_key, raw_text, FORMAT_PROMPT).await
 }
 
-/// `extra` is appended to the shared system prompt: the mode's instructions,
-/// the dictionary hint, and the user's style preferences. Kept as one opaque
-/// string so this module owns the HTTP and validation, and `transform` owns
-/// what the model is told.
+/// `system_prompt` is the COMPLETE system message: base rules, the mode's
+/// instructions, the dictionary hint and the user's style preferences, all
+/// composed by `transform`.
+///
+/// It is the whole prompt rather than a suffix because some modes contradict
+/// the default rules outright. Verbatim mode has to keep filler words, and
+/// appending "do not remove fillers" to a prompt whose second line is "remove
+/// filler words" simply loses - measured against the live API, verbatim
+/// stripped every "um" anyway. A mode that disagrees with the base must
+/// replace it, not argue with it.
 pub async fn format_text_with(
     api_key: &str,
     raw_text: &str,
-    extra: &str,
+    system_prompt: &str,
 ) -> Result<String, String> {
     if api_key.is_empty() {
         return Err("Groq API key not configured — add it in Settings > General".to_string());
@@ -117,7 +123,7 @@ pub async fn format_text_with(
     let mut errors: Vec<String> = Vec::new();
 
     for model in MODEL_CHAIN {
-        match attempt(&client, api_key, model, &user_msg, raw_text, extra).await {
+        match attempt(&client, api_key, model, &user_msg, raw_text, system_prompt).await {
             Ok(text) => {
                 if !errors.is_empty() {
                     crate::applog::log(&format!(
@@ -144,13 +150,8 @@ async fn attempt(
     model: &str,
     user_msg: &str,
     raw_text: &str,
-    extra: &str,
+    system_prompt: &str,
 ) -> Result<String, String> {
-    let system_prompt = if extra.is_empty() {
-        FORMAT_PROMPT.to_string()
-    } else {
-        format!("{}{}", FORMAT_PROMPT, extra)
-    };
     let mut body = json!({
         "model": model,
         "messages": [
@@ -524,7 +525,7 @@ mod live {
         let mut passes = 0;
         let mut seen = Vec::new();
         for _ in 0..TRIES {
-            let got = attempt(&client, &key(), model, &user_msg, raw, "")
+            let got = attempt(&client, &key(), model, &user_msg, raw, FORMAT_PROMPT)
                 .await
                 .unwrap_or_else(|e| panic!("{} failed outright: {}", model, e));
             let low = got.to_lowercase();
@@ -568,7 +569,7 @@ mod live {
         for model in MODEL_CHAIN {
             let raw = "um so we should ship it on thursday";
             let msg = format!("<transcription>{}</transcription>", raw);
-            let got = attempt(&client, &key(), model, &msg, raw, "")
+            let got = attempt(&client, &key(), model, &msg, raw, FORMAT_PROMPT)
                 .await
                 .unwrap_or_else(|e| panic!("MODEL_CHAIN entry {} is broken: {}", model, e));
             println!("{:<22} ok: {}", model, got);

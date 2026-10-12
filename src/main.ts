@@ -92,7 +92,15 @@ async function loadSettings() {
     option.textContent = mic.name + (mic.is_default ? " (default)" : "");
     micSelect.appendChild(option);
   });
+  // An empty or unplugged mic name matches no option, which renders as a
+  // blank dropdown — it reads as "no microphone", when in fact Typr is
+  // happily recording from the system default. Show the device actually in
+  // use instead.
   micSelect.value = currentSettings.microphone;
+  if (!micSelect.value) {
+    const fallback = mics.find((m) => m.is_default) ?? mics[0];
+    if (fallback) micSelect.value = fallback.name;
+  }
 
   // Groq key
   groqKey.value = currentSettings.groqApiKey;
@@ -138,14 +146,25 @@ function setRecordingMode(mode: string) {
   modePtt.classList.toggle("active", mode === "push-to-talk");
 }
 
+// Set the first time the user picks a microphone themselves.
+//
+// An empty stored name means "follow the system default", which is what
+// Typr ships with and what keeps working when a USB mic is unplugged. The
+// dropdown still has to *show* a device, so writing whatever it displays
+// back on every save would quietly pin Ben to one device he never chose.
+let micChosenByUser = false;
+
 async function saveSettings() {
-  currentSettings.microphone = micSelect.value;
+  if (micChosenByUser) currentSettings.microphone = micSelect.value;
   currentSettings.groqApiKey = groqKey.value;
   await invoke("save_settings", { settings: currentSettings });
 }
 
 // Event listeners
-micSelect.addEventListener("change", () => saveSettings());
+micSelect.addEventListener("change", () => {
+  micChosenByUser = true;
+  saveSettings();
+});
 
 groqKey.addEventListener("change", () => saveSettings());
 

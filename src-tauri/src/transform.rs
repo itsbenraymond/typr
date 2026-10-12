@@ -67,14 +67,11 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     applog::log(&format!("Mode: {} (exe={} title={})", mode.as_str(), ctx.exe, ctx.title));
 
     // ── Layer 2: the model ──
-    let extra = format!(
-        "{}{}{}",
-        mode.instructions(),
-        vocab::prompt_hint(&settings.dictionary),
-        custom_instructions(settings),
-    );
+    let system_prompt = build_prompt(settings, mode);
 
-    match crate::format_groq::format_text_with(&settings.groq_api_key, &corrected, &extra).await {
+    match crate::format_groq::format_text_with(&settings.groq_api_key, &corrected, &system_prompt)
+        .await
+    {
         Ok(formatted) => Transformed {
             // ── Layer 3b: the model can re-break a name. Fix it again.
             text: vocab::apply_dictionary(&settings.dictionary, &formatted),
@@ -93,6 +90,27 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
                 warning: Some(short_reason(&e)),
             }
         }
+    }
+}
+
+/// Compose the complete system prompt for this dictation.
+///
+/// A mode that contradicts the default rules replaces the base entirely
+/// (see `Mode::base_prompt_override`) rather than appending a contradiction
+/// the model will ignore.
+fn build_prompt(settings: &Settings, mode: Mode) -> String {
+    match mode.base_prompt_override() {
+        // An overriding mode gets no mode suffix — its prompt already says
+        // everything — but it still honours the dictionary, because a name
+        // spelled right is not an edit to the words.
+        Some(base) => format!("{}{}", base, vocab::prompt_hint(&settings.dictionary)),
+        None => format!(
+            "{}{}{}{}",
+            crate::format_groq::FORMAT_PROMPT,
+            mode.instructions(),
+            vocab::prompt_hint(&settings.dictionary),
+            custom_instructions(settings),
+        ),
     }
 }
 
@@ -252,5 +270,222 @@ mod tests {
             assert!(r.len() <= 48, "{:?} is too long for the pill: {}", r, r.len());
             assert!(r.is_ascii());
         }
+    }
+}
+
+/// Live checks for the mode prompts and the dictionary round trip.
+///
+/// Ignored by default. These are the ones that can only fail against the real
+/// service:
+///
+/// ```text
+/// TYPR_LIVE_GROQ_KEY=gsk_... cargo test --release -- --ignored --nocapture
+/// ```
+#[cfg(test)]
+mod live {
+    use super::*;
+    use crate::vocab::DictEntry;
+
+    fn key() -> String {
+        std::env::var("TYPR_LIVE_GROQ_KEY")
+            .expect("set TYPR_LIVE_GROQ_KEY to run the live checks")
+    }
+
+    fn ctx(exe: &str, title: &str) -> AppContext {
+        AppContext {
+            exe: exe.into(),
+            title: title.into(),
+        }
+    }
+
+    fn live_settings() -> Settings {
+        let mut s = Settings::default();
+        s.groq_api_key = key();
+        s
+    }
+
+    async fn pace() {
+        // 30 requests/minute and 8000 tokens/minute on this key.
+        tokio::time::sleep(std::time::Duration::from_millis(1400)).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn developer_mode_leaves_a_shell_command_alone() {
+        let s = live_settings();
+        let out = transform(
+            &s,
+            "run git diff and then npm test",
+            &ctx("windowsterminal.exe", "pwsh"),
+        )
+        .await;
+        pace().await;
+
+        assert_eq!(out.mode, Mode::Developer);
+        assert!(out.model_used, "model should have run: {:?}", out.warning);
+        let t = out.text.to_lowercase();
+        assert!(t.contains("git diff"), "mangled the command: {:?}", out.text);
+        assert!(t.contains("npm test"), "mangled the command: {:?}", out.text);
+        // Order carries meaning in a shell instruction.
+        assert!(
+            t.find("git diff").unwrap() < t.find("npm test").unwrap(),
+            "reordered the commands: {:?}",
+            out.text
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn developer_mode_applies_spoken_casing() {
+        let s = live_settings();
+        let out = transform(
+            &s,
+            "create a snake case variable called user profile id",
+            &ctx("code.exe", "main.rs"),
+        )
+        .await;
+        pace().await;
+
+        assert_eq!(out.mode, Mode::Developer);
+        assert!(
+            out.text.contains("user_profile_id"),
+            "expected snake_case identifier, got {:?}",
+            out.text
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn the_dictionary_survives_the_model() {
+        // The whole point of the post-model pass: the model has never seen
+        // these names and will happily split or lowercase them again.
+        let mut s = live_settings();
+        s.dictionary = vec![
+            DictEntry {
+                term: "Supabase".into(),
+                misheard: vec!["super base".into()],
+                enabled: true,
+            },
+            DictEntry {
+                term: "GoHighLevel".into(),
+                misheard: vec!["go high level".into()],
+                enabled: true,
+            },
+        ];
+
+        let out = transform(
+            &s,
+            "um so basically check super base and then set up the workflow in go high level",
+            &ctx("", ""),
+        )
+        .await;
+        pace().await;
+
+        assert!(out.model_used, "model should have run: {:?}", out.warning);
+        assert!(
+            out.text.contains("Supabase"),
+            "lost Supabase: {:?}",
+            out.text
+        );
+        assert!(
+            out.text.contains("GoHighLevel"),
+            "lost GoHighLevel: {:?}",
+            out.text
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn verbatim_mode_keeps_the_fillers() {
+        let mut s = live_settings();
+        s.auto_mode = false;
+        s.default_mode = "verbatim".into();
+
+        let out = transform(&s, "um so i think we should probably ship it", &ctx("", "")).await;
+        pace().await;
+
+        assert_eq!(out.mode, Mode::Verbatim);
+        assert!(
+            out.text.to_lowercase().contains("um"),
+            "verbatim must not strip fillers: {:?}",
+            out.text
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn chat_mode_does_not_add_a_greeting_or_sign_off() {
+        let s = live_settings();
+        let out = transform(
+            &s,
+            "can you send me that file when you get a sec",
+            &ctx("slack.exe", "Slack"),
+        )
+        .await;
+        pace().await;
+
+        assert_eq!(out.mode, Mode::Chat);
+        let t = out.text.to_lowercase();
+        for invented in ["hi ", "hey ", "regards", "best,", "kind regards"] {
+            assert!(!t.contains(invented), "invented {:?} in: {:?}", invented, out.text);
+        }
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+    use crate::vocab::DictEntry;
+
+    #[test]
+    fn verbatim_replaces_the_base_prompt_rather_than_appending_to_it() {
+        let s = Settings::default();
+        let prompt = build_prompt(&s, Mode::Verbatim);
+        // The contradiction must not be present at all.
+        assert!(
+            !prompt.contains("Remove filler words"),
+            "verbatim prompt still carries the cleanup rule it contradicts"
+        );
+        assert!(prompt.contains("MUST stay exactly where they are"));
+    }
+
+    #[test]
+    fn non_overriding_modes_keep_the_shared_rules() {
+        let s = Settings::default();
+        for mode in [Mode::Clean, Mode::Developer, Mode::Email, Mode::Chat] {
+            let prompt = build_prompt(&s, mode);
+            assert!(
+                prompt.contains("Remove filler words"),
+                "{:?} lost the shared cleanup rules",
+                mode
+            );
+        }
+    }
+
+    #[test]
+    fn the_dictionary_reaches_every_mode_including_verbatim() {
+        let mut s = Settings::default();
+        s.dictionary = vec![DictEntry {
+            term: "Kangaroo Growth".into(),
+            misheard: vec![],
+            enabled: true,
+        }];
+        for mode in Mode::ALL {
+            assert!(
+                build_prompt(&s, *mode).contains("Kangaroo Growth"),
+                "{:?} did not receive the dictionary",
+                mode
+            );
+        }
+    }
+
+    #[test]
+    fn style_preferences_do_not_leak_into_verbatim() {
+        // Verbatim means the speaker's exact words; a standing style note
+        // like "keep it short" would authorise editing them.
+        let mut s = Settings::default();
+        s.custom_instructions = "Keep it short.".into();
+        assert!(!build_prompt(&s, Mode::Verbatim).contains("Keep it short"));
+        assert!(build_prompt(&s, Mode::Clean).contains("Keep it short"));
     }
 }
