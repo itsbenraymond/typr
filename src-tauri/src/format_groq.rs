@@ -92,6 +92,18 @@ fn budget_tokens(raw_text: &str) -> u64 {
 }
 
 pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String> {
+    format_text_with(api_key, raw_text, "").await
+}
+
+/// `extra` is appended to the shared system prompt: the mode's instructions,
+/// the dictionary hint, and the user's style preferences. Kept as one opaque
+/// string so this module owns the HTTP and validation, and `transform` owns
+/// what the model is told.
+pub async fn format_text_with(
+    api_key: &str,
+    raw_text: &str,
+    extra: &str,
+) -> Result<String, String> {
     if api_key.is_empty() {
         return Err("Groq API key not configured — add it in Settings > General".to_string());
     }
@@ -105,7 +117,7 @@ pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String
     let mut errors: Vec<String> = Vec::new();
 
     for model in MODEL_CHAIN {
-        match attempt(&client, api_key, model, &user_msg, raw_text).await {
+        match attempt(&client, api_key, model, &user_msg, raw_text, extra).await {
             Ok(text) => {
                 if !errors.is_empty() {
                     crate::applog::log(&format!(
@@ -132,11 +144,17 @@ async fn attempt(
     model: &str,
     user_msg: &str,
     raw_text: &str,
+    extra: &str,
 ) -> Result<String, String> {
+    let system_prompt = if extra.is_empty() {
+        FORMAT_PROMPT.to_string()
+    } else {
+        format!("{}{}", FORMAT_PROMPT, extra)
+    };
     let mut body = json!({
         "model": model,
         "messages": [
-            { "role": "system", "content": FORMAT_PROMPT },
+            { "role": "system", "content": system_prompt },
             { "role": "user",   "content": user_msg }
         ],
         // Sized to this utterance — see `budget_tokens`. A truncated answer
@@ -506,7 +524,7 @@ mod live {
         let mut passes = 0;
         let mut seen = Vec::new();
         for _ in 0..TRIES {
-            let got = attempt(&client, &key(), model, &user_msg, raw)
+            let got = attempt(&client, &key(), model, &user_msg, raw, "")
                 .await
                 .unwrap_or_else(|e| panic!("{} failed outright: {}", model, e));
             let low = got.to_lowercase();
@@ -550,7 +568,7 @@ mod live {
         for model in MODEL_CHAIN {
             let raw = "um so we should ship it on thursday";
             let msg = format!("<transcription>{}</transcription>", raw);
-            let got = attempt(&client, &key(), model, &msg, raw)
+            let got = attempt(&client, &key(), model, &msg, raw, "")
                 .await
                 .unwrap_or_else(|e| panic!("MODEL_CHAIN entry {} is broken: {}", model, e));
             println!("{:<22} ok: {}", model, got);

@@ -9,6 +9,10 @@ pub mod paste;
 pub mod recorder;
 pub mod applog;
 pub mod overlay;
+pub mod appctx;
+pub mod modes;
+pub mod vocab;
+pub mod transform;
 pub mod supervisor;
 
 /// A single panic anywhere while holding one of our Mutexes (most likely the

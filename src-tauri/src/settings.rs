@@ -2,6 +2,16 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::vocab::{default_dictionary, default_snippets, DictEntry, Snippet};
+
+/// One row of "when I am in this app, use this mode".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModeOverride {
+    /// An executable name ("code.exe") or a window-title fragment ("jira").
+    pub app: String,
+    pub mode: String,
+}
+
 fn default_microphone() -> String {
     "default".to_string()
 }
@@ -13,6 +23,12 @@ fn default_hotkey() -> String {
 }
 fn default_autostart() -> bool {
     true
+}
+fn default_auto_mode() -> bool {
+    true
+}
+fn default_mode() -> String {
+    "clean".to_string()
 }
 
 /// Every field carries `#[serde(default)]` on purpose.
@@ -36,6 +52,28 @@ pub struct Settings {
     /// exactly when he reaches for the hotkey.
     #[serde(default = "default_autostart")]
     pub autostart: bool,
+
+    /// Pick the transformation mode from the app being dictated into.
+    #[serde(rename = "autoMode", default = "default_auto_mode")]
+    pub auto_mode: bool,
+
+    /// Used when auto-detection is off, or when the app is unrecognised.
+    #[serde(rename = "defaultMode", default = "default_mode")]
+    pub default_mode: String,
+
+    /// Per-app mode overrides; these beat every built-in rule.
+    #[serde(rename = "modeOverrides", default)]
+    pub mode_overrides: Vec<ModeOverride>,
+
+    #[serde(default = "default_dictionary")]
+    pub dictionary: Vec<DictEntry>,
+
+    #[serde(default = "default_snippets")]
+    pub snippets: Vec<Snippet>,
+
+    /// Free-text standing style preferences, applied to every dictation.
+    #[serde(rename = "customInstructions", default)]
+    pub custom_instructions: String,
 }
 
 impl Default for Settings {
@@ -46,6 +84,12 @@ impl Default for Settings {
             recording_mode: default_recording_mode(),
             hotkey: default_hotkey(),
             autostart: default_autostart(),
+            auto_mode: default_auto_mode(),
+            default_mode: default_mode(),
+            mode_overrides: Vec::new(),
+            dictionary: default_dictionary(),
+            snippets: default_snippets(),
+            custom_instructions: String::new(),
         }
     }
 }
@@ -148,8 +192,14 @@ mod tests {
         let settings = Settings::load(&dir);
         assert_eq!(settings.groq_api_key, "gsk_legacy_key");
         assert_eq!(settings.recording_mode, "toggle");
-        // A field the old file never had still arrives at its intended default.
+        // Fields the old file never had still arrive at their defaults.
         assert!(settings.autostart);
+        assert!(settings.auto_mode);
+        assert_eq!(settings.default_mode, "clean");
+        assert!(
+            !settings.dictionary.is_empty(),
+            "an upgraded config should still get the shipped dictionary"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -2,12 +2,35 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+interface ModeOverride {
+  app: string;
+  mode: string;
+}
+
+interface DictEntry {
+  term: string;
+  misheard: string[];
+  enabled: boolean;
+}
+
+interface Snippet {
+  trigger: string;
+  text: string;
+  enabled: boolean;
+}
+
 interface Settings {
   microphone: string;
   groqApiKey: string;
   recordingMode: string;
   hotkey: string;
   autostart: boolean;
+  autoMode: boolean;
+  defaultMode: string;
+  modeOverrides: ModeOverride[];
+  dictionary: DictEntry[];
+  snippets: Snippet[];
+  customInstructions: string;
 }
 
 interface MicDevice {
@@ -84,6 +107,21 @@ async function loadSettings() {
   // config file claims. An installer upgrade or a Windows "Startup apps"
   // toggle can drop the entry, and a switch that reads its own saved value
   // would keep showing On while Typr silently stopped launching.
+  // Modes, vocabulary and style.
+  //
+  // Rust guarantees these fields exist via serde defaults, but an older
+  // config.json read by a brand-new build briefly has them undefined in
+  // the JS layer. Coalescing here means the editors never throw on a
+  // first run.
+  currentSettings.modeOverrides ??= [];
+  currentSettings.dictionary ??= [];
+  currentSettings.snippets ??= [];
+  currentSettings.customInstructions ??= "";
+  autoModeToggle.checked = currentSettings.autoMode !== false;
+  defaultModeSelect.value = currentSettings.defaultMode || "clean";
+  customInstructions.value = currentSettings.customInstructions;
+  renderAll();
+
   const osEnabled = await invoke<boolean>("autostart_is_enabled");
   autostartToggle.checked = osEnabled;
   if (osEnabled !== currentSettings.autostart) {
@@ -163,3 +201,236 @@ listen<string>("transcription-error", (event) => {
 
 // Initialize
 loadSettings();
+
+// ───────────────────────────────────────────────────────────────────────────
+// Modes, dictionary, snippets and style
+//
+// All three lists are the same shape: a growing set of rows, each with a
+// remove control on the row itself and an "add" button underneath. Rendering
+// from the settings array every time (rather than appending DOM and tracking
+// indices) means a removal can never leave a stale index behind.
+// ───────────────────────────────────────────────────────────────────────────
+
+const MODES = [
+  "clean",
+  "polish",
+  "email",
+  "chat",
+  "developer",
+  "prompt",
+  "notes",
+  "verbatim",
+] as const;
+
+const autoModeToggle = document.getElementById("auto-mode-toggle") as HTMLInputElement;
+const defaultModeSelect = document.getElementById("default-mode") as HTMLSelectElement;
+const overridesList = document.getElementById("overrides-list")!;
+const dictionaryList = document.getElementById("dictionary-list")!;
+const snippetsList = document.getElementById("snippets-list")!;
+const customInstructions = document.getElementById("custom-instructions") as HTMLTextAreaElement;
+
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  return node;
+}
+
+function field(
+  value: string,
+  placeholder: string,
+  onInput: (v: string) => void,
+  opts: { mono?: boolean; textarea?: boolean } = {},
+) {
+  const input = opts.textarea ? el("textarea", "editor-field") : el("input", "editor-field");
+  if (opts.mono) input.classList.add("mono");
+  (input as HTMLInputElement).value = value;
+  (input as HTMLInputElement).placeholder = placeholder;
+  input.addEventListener("input", () => onInput((input as HTMLInputElement).value));
+  // Save on blur rather than on every keystroke: a save per character would
+  // rewrite config.json dozens of times per word.
+  input.addEventListener("blur", () => saveSettings());
+  return input;
+}
+
+function enabledToggle(checked: boolean, onChange: (v: boolean) => void) {
+  const label = el("label", "toggle-switch");
+  const input = el("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => {
+    onChange(input.checked);
+    saveSettings();
+    renderAll();
+  });
+  const track = el("span", "toggle-track");
+  label.append(input, track);
+  return label;
+}
+
+function removeButton(onClick: () => void) {
+  const btn = el("button", "btn-remove");
+  btn.type = "button";
+  btn.textContent = "×";
+  btn.title = "Remove";
+  btn.addEventListener("click", () => {
+    onClick();
+    saveSettings();
+    renderAll();
+  });
+  return btn;
+}
+
+function emptyNote(text: string) {
+  const note = el("div", "editor-empty");
+  note.textContent = text;
+  return note;
+}
+
+function renderOverrides() {
+  overridesList.innerHTML = "";
+  if (!currentSettings.modeOverrides.length) {
+    overridesList.append(emptyNote("No overrides. Typr is guessing from the app."));
+    return;
+  }
+  currentSettings.modeOverrides.forEach((ov, i) => {
+    const row = el("div", "editor-row");
+    row.append(
+      field(ov.app, "code.exe, or words from the title", (v) => {
+        currentSettings.modeOverrides[i].app = v;
+      }, { mono: true }),
+    );
+
+    const select = el("select", "editor-field");
+    MODES.forEach((m) => {
+      const opt = el("option");
+      opt.value = m;
+      opt.textContent = m;
+      select.append(opt);
+    });
+    select.value = ov.mode;
+    select.addEventListener("change", () => {
+      currentSettings.modeOverrides[i].mode = select.value;
+      saveSettings();
+    });
+    row.append(select);
+
+    row.append(removeButton(() => currentSettings.modeOverrides.splice(i, 1)));
+    overridesList.append(row);
+  });
+}
+
+function renderDictionary() {
+  dictionaryList.innerHTML = "";
+  if (!currentSettings.dictionary.length) {
+    dictionaryList.append(emptyNote("No words yet."));
+    return;
+  }
+  currentSettings.dictionary.forEach((entry, i) => {
+    const row = el("div", "editor-row");
+    if (!entry.enabled) row.classList.add("disabled");
+
+    row.append(
+      field(entry.term, "Spelled like this", (v) => {
+        currentSettings.dictionary[i].term = v;
+      }),
+      field(
+        entry.misheard.join(", "),
+        "heard as, these, instead",
+        (v) => {
+          // Split on commas only; a term can legitimately contain spaces
+          // ("go high level"), so splitting on whitespace would shred it.
+          currentSettings.dictionary[i].misheard = v
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        },
+      ),
+      enabledToggle(entry.enabled, (v) => {
+        currentSettings.dictionary[i].enabled = v;
+      }),
+      removeButton(() => currentSettings.dictionary.splice(i, 1)),
+    );
+    dictionaryList.append(row);
+  });
+}
+
+function renderSnippets() {
+  snippetsList.innerHTML = "";
+  if (!currentSettings.snippets.length) {
+    snippetsList.append(emptyNote("No snippets yet."));
+    return;
+  }
+  currentSettings.snippets.forEach((snip, i) => {
+    const row = el("div", "editor-row");
+    if (!snip.enabled) row.classList.add("disabled");
+
+    row.append(
+      field(snip.trigger, "say this on its own", (v) => {
+        currentSettings.snippets[i].trigger = v;
+      }),
+      field(
+        snip.text,
+        "and Typr pastes this, exactly",
+        (v) => {
+          currentSettings.snippets[i].text = v;
+        },
+        { textarea: true },
+      ),
+      enabledToggle(snip.enabled, (v) => {
+        currentSettings.snippets[i].enabled = v;
+      }),
+      removeButton(() => currentSettings.snippets.splice(i, 1)),
+    );
+    snippetsList.append(row);
+  });
+}
+
+function renderAll() {
+  renderOverrides();
+  renderDictionary();
+  renderSnippets();
+}
+
+document.getElementById("add-override")!.addEventListener("click", () => {
+  currentSettings.modeOverrides.push({ app: "", mode: currentSettings.defaultMode || "clean" });
+  renderAll();
+  focusLastField(overridesList);
+});
+
+document.getElementById("add-dict")!.addEventListener("click", () => {
+  currentSettings.dictionary.push({ term: "", misheard: [], enabled: true });
+  renderAll();
+  focusLastField(dictionaryList);
+});
+
+document.getElementById("add-snippet")!.addEventListener("click", () => {
+  currentSettings.snippets.push({ trigger: "", text: "", enabled: true });
+  renderAll();
+  focusLastField(snippetsList);
+});
+
+// A new empty row is useless until it has focus — otherwise adding one looks
+// like nothing happened.
+function focusLastField(list: HTMLElement) {
+  const rows = list.querySelectorAll(".editor-row");
+  const last = rows[rows.length - 1];
+  (last?.querySelector(".editor-field") as HTMLElement | null)?.focus();
+}
+
+autoModeToggle.addEventListener("change", () => {
+  currentSettings.autoMode = autoModeToggle.checked;
+  saveSettings();
+});
+
+defaultModeSelect.addEventListener("change", () => {
+  currentSettings.defaultMode = defaultModeSelect.value;
+  saveSettings();
+});
+
+customInstructions.addEventListener("blur", () => {
+  currentSettings.customInstructions = customInstructions.value;
+  saveSettings();
+});

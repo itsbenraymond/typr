@@ -553,3 +553,176 @@ kbd {
   background: var(--accent-subtle);
   color: var(--text);
 }
+
+/* ── Subsection headers ─────────────────────────────── */
+
+.section-header.sub {
+  margin-top: 28px;
+}
+
+.subsection-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.section-header.sub .section-desc {
+  margin-top: 2px;
+}
+
+.section-desc code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  background: var(--surface-active);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* ── Repeating row editors (overrides, dictionary, snippets) ── */
+
+.editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  transition: border-color var(--transition);
+}
+
+.editor-row:focus-within {
+  border-color: var(--border-strong);
+}
+
+/* A disabled entry stays visible and editable, just clearly inactive —
+   switching one off should never look like it was deleted. */
+.editor-row.disabled .editor-field {
+  opacity: 0.4;
+}
+
+.editor-row .editor-field {
+  flex: 1 1 0;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  transition: background var(--transition);
+}
+
+.editor-row .editor-field::placeholder {
+  color: var(--text-tertiary);
+}
+
+.editor-row .editor-field:focus {
+  outline: none;
+  background: var(--surface-active);
+}
+
+.editor-row textarea.editor-field {
+  resize: vertical;
+  min-height: 34px;
+  line-height: 1.45;
+}
+
+.editor-row select.editor-field {
+  flex: 0 0 150px;
+  cursor: pointer;
+}
+
+.editor-row .editor-field.mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.btn-remove {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  transition: color var(--transition), background var(--transition);
+}
+
+.btn-remove:hover {
+  color: var(--red);
+  background: var(--surface-active);
+}
+
+.btn-add {
+  margin-top: 10px;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 12.5px;
+  padding: 7px 12px;
+  cursor: pointer;
+  width: 100%;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+
+.btn-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.editor-empty {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  padding: 10px 2px;
+}
+
+/* ── Stacked setting row (label above a wide control) ── */
+
+.setting-row.stacked {
+  display: block;
+}
+
+.setting-row.stacked .setting-label {
+  margin-bottom: 10px;
+}
+
+#custom-instructions {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  resize: vertical;
+  transition: border-color var(--transition);
+}
+
+#custom-instructions:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#custom-instructions::placeholder {
+  color: var(--text-tertiary);
+}

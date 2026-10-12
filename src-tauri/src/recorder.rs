@@ -149,22 +149,26 @@ impl Recorder {
             // Cleanup temp file
             let _ = std::fs::remove_file(&temp_path);
 
-            // Clean up / format
+            // Clean up / format.
+            //
+            // The destination app is read from the window handle captured
+            // before the pill appeared, so the mode is chosen for wherever
+            // the text is actually going, not for whatever has focus now.
             let cleaned = if format_mode {
                 let noise_cleaned = crate::cleanup::strip_noise_only(&raw_text);
-                match crate::format_groq::format_text(&settings.groq_api_key, &noise_cleaned).await {
-                    Ok(formatted) => formatted,
-                    Err(e) => {
-                        crate::applog::log(&format!("Groq format failed: {}", e));
-                        let _ = app.emit("format-error", e);
-                        // For weeks this branch was taken on every single
-                        // dictation (the configured model had been
-                        // decommissioned) and nothing on screen said so, so
-                        // raw transcripts looked like the intended output.
-                        *soft_warning.lock_safe() = Some("AI cleanup failed - pasted raw".into());
-                        cleanup_text(&raw_text)
-                    }
+                let ctx = crate::appctx::for_hwnd(*self.focused_hwnd.lock_safe());
+                let result =
+                    crate::transform::transform(settings, &noise_cleaned, &ctx).await;
+
+                if let Some(warning) = result.warning {
+                    // For weeks the failure branch was taken on every single
+                    // dictation (the configured model had been decommissioned)
+                    // and nothing on screen said so, so raw transcripts looked
+                    // like the intended output.
+                    let _ = app.emit("format-error", warning.clone());
+                    *soft_warning.lock_safe() = Some(warning);
                 }
+                result.text
             } else {
                 cleanup_text(&raw_text)
             };

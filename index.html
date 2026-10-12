@@ -42,6 +42,19 @@
             </svg>
             Recording
           </a>
+
+          <a class="nav-item" data-section="modes">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2.5 4.5h11M2.5 8h7M2.5 11.5h9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            Modes
+          </a>
+          <a class="nav-item" data-section="vocabulary">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3.5h10v9H3z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5.5 6.5h5M5.5 9.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            Vocabulary
+          </a>
+          <a class="nav-item" data-section="style">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5l1.6 3.6 3.9.4-2.9 2.6.8 3.8L8 11l-3.4 1.9.8-3.8L2.5 6.5l3.9-.4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+            Style
+          </a>
         </nav>
         <div class="sidebar-footer">
           <span class="version-text">v0.1.0</span>
@@ -114,6 +127,89 @@
               <div class="setting-control">
                 <kbd id="hotkey-text">Ctrl+Shift+Space</kbd>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="section-modes" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Modes</h2>
+            <p class="section-desc">How Typr rewrites your speech, per app</p>
+          </div>
+          <div class="settings-list">
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Match the app</span>
+                <span class="label-hint">Code editors keep identifiers, Gmail gets paragraphs, Slack stays casual</span>
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="auto-mode-toggle" />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Fallback mode</span>
+                <span class="label-hint">Used for apps Typr does not recognise</span>
+              </div>
+              <div class="setting-control">
+                <select id="default-mode">
+                  <option value="clean">Clean - fix the speech, change nothing else</option>
+                  <option value="polish">Polish - improve clarity and flow</option>
+                  <option value="email">Email - paragraphs and email shape</option>
+                  <option value="chat">Chat - short and conversational</option>
+                  <option value="developer">Developer - keep code and commands intact</option>
+                  <option value="prompt">Prompt - structure it for an AI</option>
+                  <option value="notes">Notes - bullets and action items</option>
+                  <option value="verbatim">Verbatim - punctuation only</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-header sub">
+            <h3 class="subsection-title">Per-app overrides</h3>
+            <p class="section-desc">An app name like <code>code.exe</code>, or any words from the window title. These beat the built-in rules.</p>
+          </div>
+          <div class="editor-list" id="overrides-list"></div>
+          <button class="btn-add" id="add-override">Add an override</button>
+        </section>
+
+        <section id="section-vocabulary" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Vocabulary</h2>
+            <p class="section-desc">Names Typr must always spell your way, and phrases that expand</p>
+          </div>
+
+          <div class="section-header sub">
+            <h3 class="subsection-title">Dictionary</h3>
+            <p class="section-desc">The spelling on the left always wins. List what it gets heard as on the right, separated by commas.</p>
+          </div>
+          <div class="editor-list" id="dictionary-list"></div>
+          <button class="btn-add" id="add-dict">Add a word</button>
+
+          <div class="section-header sub">
+            <h3 class="subsection-title">Snippets</h3>
+            <p class="section-desc">Say the trigger on its own and Typr pastes the text exactly as saved, with no AI in between.</p>
+          </div>
+          <div class="editor-list" id="snippets-list"></div>
+          <button class="btn-add" id="add-snippet">Add a snippet</button>
+        </section>
+
+        <section id="section-style" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Style</h2>
+            <p class="section-desc">Standing instructions applied to every dictation</p>
+          </div>
+          <div class="settings-list">
+            <div class="setting-row stacked">
+              <div class="setting-label">
+                <span class="label-text">Your preferences</span>
+                <span class="label-hint">Plain English. "Keep it short." "Never use em dashes." "Australian spelling." These change how it reads, never what it says.</span>
+              </div>
+              <textarea id="custom-instructions" rows="7" placeholder="Keep sentences short.&#10;Australian spelling.&#10;No em dashes."></textarea>
             </div>
           </div>
         </section>
