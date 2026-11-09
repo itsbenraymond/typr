@@ -1,0 +1,21 @@
+# Linux-runnable unit tests for Typr's OS-independent modules.
+#
+# The main crate pulls in Tauri, WebView2/webkit, cpal and enigo, so it does
+# not build on a box without a desktop stack (the VPS). These modules are
+# included here by path, unchanged, so their tests run anywhere:
+#
+#   cargo test --manifest-path src-tauri/pure-tests/Cargo.toml
+#
+# Nothing in the app depends on this crate.
+[package]
+name = "typr-pure-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
