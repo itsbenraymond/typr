@@ -51,6 +51,10 @@
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3.5h10v9H3z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5.5 6.5h5M5.5 9.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
             Vocabulary
           </a>
+          <a class="nav-item" data-section="learning">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Learning
+          </a>
           <a class="nav-item" data-section="style">
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5l1.6 3.6 3.9.4-2.9 2.6.8 3.8L8 11l-3.4 1.9.8-3.8L2.5 6.5l3.9-.4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
             Style
@@ -196,6 +200,76 @@
           </div>
           <div class="editor-list" id="snippets-list"></div>
           <button class="btn-add" id="add-snippet">Add a snippet</button>
+        </section>
+
+        <section id="section-learning" class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Learning</h2>
+            <p class="section-desc">Corrections Typr noticed, voice commands and list formatting</p>
+          </div>
+          <div class="settings-list">
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Dot points for spoken lists</span>
+                <span class="label-hint">"First ... second ... third" or "the list is a, b and c" becomes dot points. Ordinary sentences are never touched.</span>
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="list-formatting-toggle" />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">"Typr, ..." commands</span>
+                <span class="label-hint">Start with Typr then a verb: "Typr, add ServiceM8 to the dictionary", "Typr, undo", "Typr, show corrections". Anything else is typed as normal.</span>
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="command-prefix-toggle" />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-label">
+                <span class="label-text">Learn from my corrections</span>
+                <span class="label-hint">After a paste, notice words you fix and suggest them below. Nothing is added until you approve it.</span>
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="correction-watch-toggle" />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-header sub">
+            <h3 class="subsection-title">Suggested words</h3>
+            <p class="section-desc" id="learn-status">Fixes you made after a paste. Approve adds them to the dictionary.</p>
+          </div>
+          <div class="editor-list" id="corrections-list"></div>
+          <button class="btn-add" id="undo-correction">Undo last dictionary change</button>
+
+          <div class="section-header sub">
+            <h3 class="subsection-title">Try the learner</h3>
+            <p class="section-desc">Paste what Typr typed and what you changed it to. This is what the watch will do on its own once it can read the field.</p>
+          </div>
+          <div class="editor-list">
+            <div class="editor-row">
+              <textarea class="editor-field" id="sample-pasted" rows="2" placeholder="What Typr pasted"></textarea>
+              <textarea class="editor-field" id="sample-after" rows="2" placeholder="What the field said after you fixed it"></textarea>
+            </div>
+          </div>
+          <button class="btn-add" id="submit-sample">Check for corrections</button>
+
+          <div class="section-header sub">
+            <h3 class="subsection-title">Change log</h3>
+            <p class="section-desc">Every dictionary change from here, newest first. Kept forever, never edited.</p>
+          </div>
+          <div class="editor-list" id="change-log"></div>
         </section>
 
         <section id="section-style" class="content-section">

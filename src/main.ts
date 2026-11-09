@@ -31,6 +31,31 @@ interface Settings {
   dictionary: DictEntry[];
   snippets: Snippet[];
   customInstructions: string;
+  listFormatting: boolean;
+  commandPrefix: boolean;
+  correctionWatch: boolean;
+  correctionWatchSecs: number;
+}
+
+interface Proposal {
+  id: number;
+  original: string;
+  corrected: string;
+  context: string;
+  kind: "substitution" | "case-only" | "punctuation-only";
+  firstSeen: number;
+  lastSeen: number;
+  count: number;
+  status: "pending" | "approved" | "rejected";
+}
+
+interface LogEntry {
+  seq: number;
+  at: number;
+  action: string;
+  proposalId: number | null;
+  effect: { type: string; term?: string; misheard?: string | string[]; entry?: DictEntry };
+  undoes: number | null;
 }
 
 interface MicDevice {
@@ -129,6 +154,8 @@ async function loadSettings() {
   defaultModeSelect.value = currentSettings.defaultMode || "clean";
   customInstructions.value = currentSettings.customInstructions;
   renderAll();
+  syncLearningToggles();
+  refreshLearning();
 
   const osEnabled = await invoke<boolean>("autostart_is_enabled");
   autostartToggle.checked = osEnabled;
@@ -453,3 +480,148 @@ customInstructions.addEventListener("blur", () => {
   currentSettings.customInstructions = customInstructions.value;
   saveSettings();
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// Learning: suggested corrections, voice commands, list formatting
+//
+// Every call that changes the dictionary returns the new Settings from Rust,
+// and the screen swaps its copy for that one. Keeping the old copy would let
+// the next unrelated save write the old dictionary straight back.
+// ───────────────────────────────────────────────────────────────────────────
+
+const listFormattingToggle = document.getElementById("list-formatting-toggle") as HTMLInputElement;
+const commandPrefixToggle = document.getElementById("command-prefix-toggle") as HTMLInputElement;
+const correctionWatchToggle = document.getElementById("correction-watch-toggle") as HTMLInputElement;
+const correctionsList = document.getElementById("corrections-list")!;
+const changeLogList = document.getElementById("change-log")!;
+const learnStatus = document.getElementById("learn-status")!;
+
+function bindPreference(
+  input: HTMLInputElement,
+  key: "listFormatting" | "commandPrefix" | "correctionWatch",
+) {
+  input.addEventListener("change", () => {
+    currentSettings[key] = input.checked;
+    saveSettings();
+  });
+}
+bindPreference(listFormattingToggle, "listFormatting");
+bindPreference(commandPrefixToggle, "commandPrefix");
+bindPreference(correctionWatchToggle, "correctionWatch");
+
+function syncLearningToggles() {
+  listFormattingToggle.checked = currentSettings.listFormatting !== false;
+  commandPrefixToggle.checked = currentSettings.commandPrefix !== false;
+  correctionWatchToggle.checked = currentSettings.correctionWatch !== false;
+}
+
+function adoptSettings(fresh: Settings) {
+  // The mic choice and key field are live inputs; keep what is on screen.
+  currentSettings = fresh;
+  syncLearningToggles();
+  renderAll();
+}
+
+function when(secs: number) {
+  return secs ? new Date(secs * 1000).toLocaleString() : "";
+}
+
+function describeEffect(e: LogEntry) {
+  const fx = e.effect;
+  switch (fx.type) {
+    case "created-entry":
+      return `added "${fx.term}"`;
+    case "added-misheard":
+      return `"${fx.misheard}" now becomes "${fx.term}"`;
+    case "removed-entry":
+      return `removed "${fx.entry?.term ?? ""}"`;
+    default:
+      return "no dictionary change";
+  }
+}
+
+async function refreshLearning() {
+  try {
+    const [queue, log] = await Promise.all([
+      invoke<Proposal[]>("list_corrections"),
+      invoke<LogEntry[]>("correction_log"),
+    ]);
+
+    correctionsList.innerHTML = "";
+    if (!queue.length) correctionsList.append(emptyNote("Nothing to review."));
+    queue.forEach((p) => {
+      const row = el("div", "editor-row");
+      const text = el("div", "editor-field");
+      text.textContent =
+        `"${p.original}" -> "${p.corrected}"  ·  seen ${p.count}x, last ${when(p.lastSeen)}  ·  ${p.context}`;
+      text.title = `${p.kind}, first seen ${when(p.firstSeen)}`;
+      const approve = el("button", "btn-add");
+      approve.type = "button";
+      approve.textContent = "Approve";
+      approve.addEventListener("click", async () => {
+        adoptSettings(await invoke<Settings>("approve_correction", { id: p.id }));
+        refreshLearning();
+      });
+      const reject = actionButton("Reject", async () => {
+        await invoke("reject_correction", { id: p.id });
+        refreshLearning();
+      });
+      row.append(text, approve, reject);
+      correctionsList.append(row);
+    });
+
+    changeLogList.innerHTML = "";
+    if (!log.length) changeLogList.append(emptyNote("No changes yet."));
+    [...log].reverse().forEach((e) => {
+      const row = el("div", "editor-row");
+      const text = el("div", "editor-field");
+      const what = e.action === "undo" ? `undo #${e.undoes}: ${describeEffect(e)}` : `${e.action}: ${describeEffect(e)}`;
+      text.textContent = `#${e.seq}  ${when(e.at)}  ${what}`;
+      row.append(text);
+      changeLogList.append(row);
+    });
+  } catch (err) {
+    learnStatus.textContent = `Could not load suggestions: ${err}`;
+  }
+}
+
+function actionButton(label: string, onClick: () => void) {
+  const btn = el("button", "btn-remove");
+  btn.type = "button";
+  btn.textContent = label;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+document.getElementById("undo-correction")!.addEventListener("click", async () => {
+  try {
+    adoptSettings(await invoke<Settings>("undo_correction"));
+    learnStatus.textContent = "Undone.";
+  } catch (err) {
+    learnStatus.textContent = String(err);
+  }
+  refreshLearning();
+});
+
+document.getElementById("submit-sample")!.addEventListener("click", async () => {
+  const pasted = (document.getElementById("sample-pasted") as HTMLTextAreaElement).value;
+  const after = (document.getElementById("sample-after") as HTMLTextAreaElement).value;
+  try {
+    const n = await invoke<number>("submit_correction_sample", { pasted, after });
+    learnStatus.textContent = n
+      ? `${n} suggestion(s) filed. Case or punctuation-only fixes show up after 3 sightings.`
+      : "No deliberate correction found in that pair.";
+  } catch (err) {
+    learnStatus.textContent = String(err);
+  }
+  refreshLearning();
+});
+
+// A voice command ("Typr, add X to the dictionary") changed settings from the
+// Rust side. Take the new copy before anything here saves over it.
+listen<Settings>("settings-changed", (event) => {
+  adoptSettings(event.payload);
+  refreshLearning();
+});
+
+document.querySelector('[data-section="learning"]')?.addEventListener("click", () => refreshLearning());
