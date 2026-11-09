@@ -74,7 +74,7 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     {
         Ok(formatted) => Transformed {
             // ── Layer 3b: the model can re-break a name. Fix it again.
-            text: vocab::apply_dictionary(&settings.dictionary, &formatted),
+            text: finish_lists(settings, mode, vocab::apply_dictionary(&settings.dictionary, &formatted)),
             mode,
             model_used: true,
             warning: None,
@@ -84,12 +84,30 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
             Transformed {
                 // Not the raw transcript: the dictionary pass is deterministic
                 // and correct on its own, so the fallback keeps it.
-                text: crate::cleanup::cleanup_text(&corrected),
+                text: finish_lists(settings, mode, crate::cleanup::cleanup_text(&corrected)),
                 mode,
                 model_used: false,
                 warning: Some(short_reason(&e)),
             }
         }
+    }
+}
+
+/// Layer 4: a clearly spoken enumeration becomes dot points.
+///
+/// Never in Verbatim (the words as spoken) or Developer (a shell command or
+/// code comment must not grow bullets). `listfmt` itself is conservative and
+/// returns None for anything that is not unmistakably a list.
+fn finish_lists(settings: &Settings, mode: Mode, text: String) -> String {
+    if !settings.list_formatting || matches!(mode, Mode::Verbatim | Mode::Developer) {
+        return text;
+    }
+    match crate::listfmt::format_list(&text) {
+        Some(listed) => {
+            applog::log("List formatting applied");
+            listed
+        }
+        None => text,
     }
 }
 
@@ -238,6 +256,22 @@ mod tests {
         );
         assert!(!out.model_used);
         assert_eq!(out.warning.as_deref(), Some("Add your Groq API key in Settings"));
+    }
+
+    #[tokio::test]
+    async fn a_spoken_list_becomes_dot_points_except_where_it_must_not() {
+        let mut s = settings();
+        s.groq_api_key = String::new(); // fallback path, no network
+        let spoken = "first call mitch. second send the invoice. third book the call";
+        let out = transform(&s, spoken, &ctx("", "")).await;
+        assert!(out.text.contains("\n- "), "expected dot points, got {:?}", out.text);
+
+        let dev = transform(&s, spoken, &ctx("code.exe", "main.rs")).await;
+        assert!(!dev.text.contains("\n- "), "developer mode must not reformat: {:?}", dev.text);
+
+        s.list_formatting = false;
+        let off = transform(&s, spoken, &ctx("", "")).await;
+        assert!(!off.text.contains("\n- "), "preference off must not reformat: {:?}", off.text);
     }
 
     #[test]
