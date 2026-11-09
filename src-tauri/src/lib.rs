@@ -14,6 +14,11 @@ pub mod modes;
 pub mod vocab;
 pub mod transform;
 pub mod supervisor;
+pub mod learn;
+pub mod command;
+pub mod listfmt;
+pub mod correction_watch;
+pub mod http;
 
 /// A single panic anywhere while holding one of our Mutexes (most likely the
 /// cpal audio-callback thread, which fires continuously during recording and

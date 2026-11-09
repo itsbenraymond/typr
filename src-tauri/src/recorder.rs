@@ -76,6 +76,9 @@ impl Recorder {
         };
 
         *state = RecordingState::Recording;
+        // Open the connection to Groq while Ben is still talking, so the
+        // transcription request does not wait on a TLS handshake.
+        crate::http::prewarm();
         let _ = app.emit("recording-state", RecordingState::Recording);
         update_overlay(app, &RecordingState::Recording);
         drop(state);
@@ -101,13 +104,18 @@ impl Recorder {
         Ok(())
     }
 
+    /// `settings_store` is the app's live settings. It is read once up front,
+    /// and locked again only if a voice command changes the dictionary.
     pub async fn stop_and_transcribe(
         &self,
         app: &AppHandle,
-        settings: &Settings,
+        settings_store: &Mutex<Settings>,
         app_dir: &PathBuf,
         format_mode: bool,
     ) -> Result<String, String> {
+        let settings_snapshot = settings_store.lock_safe().clone();
+        let settings = &settings_snapshot;
+        let started = std::time::Instant::now();
         // Stop recording
         {
             let mut state = self.state.lock_safe();
@@ -144,10 +152,22 @@ impl Recorder {
                 api_key: settings.groq_api_key.clone(),
                 language: "en".to_string(),
             };
+            let t_saved = started.elapsed().as_millis();
             let raw_text = transcriber.transcribe(&temp_path, &opts).await?;
+            let t_transcribed = started.elapsed().as_millis();
 
             // Cleanup temp file
             let _ = std::fs::remove_file(&temp_path);
+
+            // "Typr, add X to the dictionary" and friends. A command Typr
+            // cannot carry out returns None and is dictated as normal.
+            if format_mode && settings.command_prefix {
+                let spoken = crate::cleanup::strip_noise_only(&raw_text);
+                if let Some(message) = run_voice_command(app, settings_store, app_dir, &spoken) {
+                    *soft_warning.lock_safe() = Some(message);
+                    return Ok(String::new());
+                }
+            }
 
             // Clean up / format.
             //
@@ -182,10 +202,30 @@ impl Recorder {
 
             // Auto-paste — re-click the original cursor position so the correct
             // input field has focus before Ctrl+V fires.
+            let t_transformed = started.elapsed().as_millis();
             if !cleaned.is_empty() {
                 let saved_hwnd = *self.focused_hwnd.lock_safe();
                 paste_text(&cleaned, saved_hwnd)?;
+                if settings.correction_watch {
+                    crate::correction_watch::spawn_watch(
+                        app_dir.clone(),
+                        cleaned.clone(),
+                        saved_hwnd,
+                        settings.correction_watch_secs,
+                    );
+                }
             }
+            // Where the time between "stop" and "pasted" goes. Read these
+            // lines in typr.log on BensPC; see docs/paste-latency.md.
+            crate::applog::log(&format!(
+                "Timing: wav={}ms transcribe={}ms transform={}ms paste={}ms total={}ms chars={}",
+                t_saved,
+                t_transcribed - t_saved,
+                t_transformed - t_transcribed,
+                started.elapsed().as_millis() - t_transformed,
+                started.elapsed().as_millis(),
+                cleaned.len()
+            ));
 
             Ok(cleaned)
         }
@@ -219,6 +259,61 @@ impl Recorder {
 
         result
     }
+}
+
+/// Carry out a "Typr, ..." command. Returns the message to show on the pill,
+/// or None when the utterance is not a command Typr can act on (the caller
+/// then dictates it, so a false positive never loses what was said).
+fn run_voice_command(
+    app: &AppHandle,
+    settings_store: &Mutex<Settings>,
+    app_dir: &PathBuf,
+    spoken: &str,
+) -> Option<String> {
+    use crate::command::{classify, parse_action, Action, Intent};
+
+    let Intent::Command(cmd) = classify(spoken) else {
+        return None;
+    };
+    let action = parse_action(&cmd);
+    crate::applog::log(&format!("Voice command {:?} -> {:?}", spoken, action));
+
+    let result: Result<String, String> = match &action {
+        Action::Unsupported => return None,
+        Action::ShowSettings => {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            Ok("Opened Typr".to_string())
+        }
+        Action::UndoLastChange => {
+            let mut s = settings_store.lock_safe();
+            crate::correction_watch::undo(app_dir, &mut s).map(|_| "Undid last dictionary change".to_string())
+        }
+        Action::AddWord(term) => {
+            let mut s = settings_store.lock_safe();
+            crate::correction_watch::add_term(app_dir, &mut s, term).map(|_| format!("Added {} to dictionary", term))
+        }
+        Action::RemoveWord(term) => {
+            let mut s = settings_store.lock_safe();
+            crate::correction_watch::remove_term(app_dir, &mut s, term)
+                .map(|_| format!("Removed {} from dictionary", term))
+        }
+    };
+
+    let message = match result {
+        Ok(m) => {
+            // The settings screen holds its own copy; tell it to reload so a
+            // later save from there does not write the old dictionary back.
+            let fresh = settings_store.lock_safe().clone();
+            let _ = app.emit("settings-changed", fresh);
+            m
+        }
+        Err(e) => e,
+    };
+    crate::applog::log(&format!("Voice command result: {}", message));
+    Some(message)
 }
 
 #[cfg(test)]

@@ -114,16 +114,16 @@ pub async fn format_text_with(
         return Err("Groq API key not configured — add it in Settings > General".to_string());
     }
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(ATTEMPT_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| e.to_string())?;
+    // Shared, pooled client: reuses the connection the transcription request
+    // just opened instead of paying for a new TLS handshake. The per-attempt
+    // timeout moved from the client to each request (see `attempt`).
+    let client = crate::http::client();
 
     let user_msg = format!("<transcription>{}</transcription>", raw_text);
     let mut errors: Vec<String> = Vec::new();
 
     for model in MODEL_CHAIN {
-        match attempt(&client, api_key, model, &user_msg, raw_text, system_prompt).await {
+        match attempt(client, api_key, model, &user_msg, raw_text, system_prompt).await {
             Ok(text) => {
                 if !errors.is_empty() {
                     crate::applog::log(&format!(
@@ -169,6 +169,7 @@ async fn attempt(
 
     let resp = client
         .post("https://api.groq.com/openai/v1/chat/completions")
+        .timeout(Duration::from_secs(ATTEMPT_TIMEOUT_SECS))
         .bearer_auth(api_key)
         .json(&body)
         .send()

@@ -38,8 +38,11 @@ pub fn paste_text(text: &str, restore_hwnd: usize) -> Result<(), String> {
 
         std::thread::sleep(std::time::Duration::from_millis(100));
 
-        if restore_hwnd != 0 {
-            let before = unsafe { GetForegroundWindow() };
+        // Skip the focus dance when the target already has focus, which is
+        // the normal case (the pill does not take focus). That saves the
+        // 150ms settle below on almost every paste. See docs/paste-latency.md.
+        let before = unsafe { GetForegroundWindow() };
+        if restore_hwnd != 0 && before != restore_hwnd {
             println!("[Typr Paste] Foreground before restore: {}", before);
 
             let ok = unsafe { SetForegroundWindow(restore_hwnd) };

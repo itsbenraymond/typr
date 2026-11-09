@@ -20,8 +20,9 @@ pub async fn transcribe_groq(api_key: &str, audio_path: &PathBuf) -> Result<Stri
         .text("response_format", "json")
         .part("file", file_part);
 
-    let client = reqwest::Client::new();
-    let response = client
+    // Shared, pooled client (see `http`), so a connection prewarmed while
+    // recording is reused here and again for the cleanup call after.
+    let response = crate::http::client()
         .post("https://api.groq.com/openai/v1/audio/transcriptions")
         .header("Authorization", format!("Bearer {}", api_key))
         .multipart(form)

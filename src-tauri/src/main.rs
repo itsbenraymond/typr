@@ -9,6 +9,8 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use typr_lib::applog;
+use typr_lib::correction_watch;
+use typr_lib::learn;
 use typr_lib::audio;
 use typr_lib::overlay;
 use typr_lib::recorder::{Recorder, RecordingState};
@@ -86,6 +88,50 @@ fn cancel_recording(app: tauri::AppHandle, state: State<'_, AppState>) -> Result
     state.recorder.cancel_recording(&app)
 }
 
+// ── Learned corrections: review queue, change log, undo ──────────────────────
+//
+// Proposals come from `correction_watch`; nothing reaches the dictionary
+// without one of these. Commands that change the dictionary return the new
+// Settings so the settings screen replaces its copy instead of later saving a
+// stale dictionary over the change.
+
+#[tauri::command]
+fn list_corrections(state: State<AppState>) -> Vec<learn::Proposal> {
+    correction_watch::queue(&state.app_dir)
+}
+
+#[tauri::command]
+fn correction_log(state: State<AppState>) -> Vec<learn::LogEntry> {
+    correction_watch::change_log(&state.app_dir)
+}
+
+#[tauri::command]
+fn approve_correction(state: State<AppState>, id: u64) -> Result<Settings, String> {
+    let mut settings = state.settings.lock_safe();
+    correction_watch::approve(&state.app_dir, &mut settings, id)?;
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+fn reject_correction(state: State<AppState>, id: u64) -> Result<(), String> {
+    correction_watch::reject(&state.app_dir, id).map(|_| ())
+}
+
+#[tauri::command]
+fn undo_correction(state: State<AppState>) -> Result<Settings, String> {
+    let mut settings = state.settings.lock_safe();
+    correction_watch::undo(&state.app_dir, &mut settings)?;
+    Ok(settings.clone())
+}
+
+/// Feed the learner a before/after pair by hand. This is how the engine can
+/// be tried on BensPC before the field-reading hook exists.
+#[tauri::command]
+fn submit_correction_sample(state: State<AppState>, pasted: String, after: String) -> Result<usize, String> {
+    let settings = state.settings.lock_safe().clone();
+    correction_watch::record(&state.app_dir, &pasted, &after, &settings)
+}
+
 fn apply_autostart(app: &tauri::AppHandle, enabled: bool) {
     let manager = app.autolaunch();
     let result = if enabled {
@@ -116,10 +162,9 @@ async fn do_toggle_recording(
             Ok("recording".to_string())
         }
         RecordingState::Recording => {
-            let settings = state.settings.lock_safe().clone();
             let result = state
                 .recorder
-                .stop_and_transcribe(app, &settings, &state.app_dir, true)
+                .stop_and_transcribe(app, &state.settings, &state.app_dir, true)
                 .await?;
             Ok(result)
         }
@@ -174,12 +219,11 @@ fn register_hotkey(app: &tauri::AppHandle, accelerator: &str) -> Result<(), Stri
                             let state = handle.state::<AppState>();
                             let current = state.recorder.get_state();
                             if current == RecordingState::Recording {
-                                let settings = state.settings.lock_safe().clone();
                                 match state
                                     .recorder
                                     .stop_and_transcribe(
                                         &handle,
-                                        &settings,
+                                        &state.settings,
                                         &state.app_dir,
                                         true,
                                     )
@@ -300,6 +344,12 @@ fn main() {
             toggle_recording,
             cancel_recording,
             autostart_is_enabled,
+            list_corrections,
+            correction_log,
+            approve_correction,
+            reject_correction,
+            undo_correction,
+            submit_correction_sample,
         ])
         // ── Hide main window to tray on close; overlay just hides itself ──
         .on_window_event(|window, event| {

@@ -30,6 +30,9 @@ fn default_auto_mode() -> bool {
 fn default_mode() -> String {
     "clean".to_string()
 }
+fn default_correction_watch_secs() -> u64 {
+    30
+}
 
 /// Every field carries `#[serde(default)]` on purpose.
 ///
@@ -74,6 +77,29 @@ pub struct Settings {
     /// Free-text standing style preferences, applied to every dictation.
     #[serde(rename = "customInstructions", default)]
     pub custom_instructions: String,
+
+    /// Turn a clearly spoken enumeration ("first ... second ... third", or
+    /// "the list is a, b and c") into dot points. See `listfmt`.
+    #[serde(rename = "listFormatting", default = "default_true")]
+    pub list_formatting: bool,
+
+    /// Treat "Typr, <verb> ..." as a command to Typr instead of dictation.
+    /// See `command`. Anything Typr cannot carry out is still pasted.
+    #[serde(rename = "commandPrefix", default = "default_true")]
+    pub command_prefix: bool,
+
+    /// Watch the field after a paste and propose dictionary entries from
+    /// Ben's corrections. Proposals only; nothing is added without approval.
+    /// Inert until the platform can read the field (`correction_watch`).
+    #[serde(rename = "correctionWatch", default = "default_true")]
+    pub correction_watch: bool,
+
+    #[serde(rename = "correctionWatchSecs", default = "default_correction_watch_secs")]
+    pub correction_watch_secs: u64,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -90,6 +116,10 @@ impl Default for Settings {
             dictionary: default_dictionary(),
             snippets: default_snippets(),
             custom_instructions: String::new(),
+            list_formatting: true,
+            command_prefix: true,
+            correction_watch: true,
+            correction_watch_secs: default_correction_watch_secs(),
         }
     }
 }
@@ -147,6 +177,20 @@ mod tests {
     }
 
     #[test]
+    fn new_preferences_round_trip_under_their_json_names() {
+        let mut s = Settings::default();
+        s.list_formatting = false;
+        s.command_prefix = false;
+        s.correction_watch_secs = 45;
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"listFormatting\":false"));
+        assert!(json.contains("\"commandPrefix\":false"));
+        assert!(json.contains("\"correctionWatchSecs\":45"));
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
     fn test_load_missing_file_returns_default() {
         let dir = temp_dir().join("typr_test_missing");
         let _ = fs::remove_dir_all(&dir);
@@ -200,6 +244,10 @@ mod tests {
             !settings.dictionary.is_empty(),
             "an upgraded config should still get the shipped dictionary"
         );
+        assert!(settings.list_formatting);
+        assert!(settings.command_prefix);
+        assert!(settings.correction_watch);
+        assert_eq!(settings.correction_watch_secs, 30);
 
         let _ = fs::remove_dir_all(&dir);
     }
