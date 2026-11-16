@@ -3,6 +3,8 @@ use async_trait::async_trait;
 
 pub struct TranscribeOpts {
     pub api_key: String,
+    /// Optional second-provider key for when Groq is down; empty = skip.
+    pub mistral_api_key: String,
     pub language: String,
 }
 

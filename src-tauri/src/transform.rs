@@ -69,7 +69,12 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     // ── Layer 2: the model ──
     let system_prompt = build_prompt(settings, mode);
 
-    match crate::format_groq::format_text_with(&settings.groq_api_key, &corrected, &system_prompt)
+    match crate::format_groq::format_text_with(
+        &settings.groq_api_key,
+        &settings.claude_creds(),
+        &corrected,
+        &system_prompt,
+    )
         .await
     {
         Ok(formatted) => Transformed {

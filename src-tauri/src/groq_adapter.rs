@@ -8,7 +8,11 @@ pub struct GroqAdapter;
 #[async_trait]
 impl Transcriber for GroqAdapter {
     async fn transcribe(&self, audio_path: &PathBuf, opts: &TranscribeOpts) -> Result<String, String> {
-        transcribe_groq::transcribe_groq(&opts.api_key, audio_path).await
+        let keys = transcribe_groq::SttKeys {
+            groq: opts.api_key.clone(),
+            mistral: opts.mistral_api_key.clone(),
+        };
+        transcribe_groq::transcribe(&keys, audio_path).await
     }
 }
 
@@ -33,6 +37,7 @@ mod tests {
         let t = default_transcriber();
         let opts = TranscribeOpts {
             api_key: String::new(),
+            mistral_api_key: String::new(),
             language: "en".to_string(),
         };
         let result = t.transcribe(&PathBuf::from("unused.wav"), &opts).await;

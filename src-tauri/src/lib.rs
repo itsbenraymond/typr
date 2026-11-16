@@ -5,6 +5,8 @@ pub mod groq_adapter;
 pub mod transcribe_groq;
 pub mod cleanup;
 pub mod format_groq;
+pub mod format_claude;
+pub mod failover;
 pub mod paste;
 pub mod recorder;
 pub mod applog;

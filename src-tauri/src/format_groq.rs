@@ -2,6 +2,9 @@ use std::time::Duration;
 use reqwest::Client;
 use serde_json::json;
 
+use crate::failover::{FailKind, Failure, RETRY_DELAY};
+use crate::format_claude::ClaudeCreds;
+
 pub const FORMAT_PROMPT: &str = "\
 You are Typr, a dictation cleanup engine. You receive raw speech-to-text and \
 return clean, readable written text that says exactly what the speaker meant.
@@ -65,11 +68,11 @@ fn needs_reasoning_effort(model: &str) -> bool {
 /// Per-attempt HTTP timeout.
 ///
 /// Was 2s, which is below the p99 for a cold Groq queue even when the model
-/// exists — so on the rare call that was not already 404ing, the client gave
-/// up before the answer arrived. Measured round trip is 0.3-0.8s; 8s is a
-/// genuine ceiling rather than a coin flip, and the whole chain is still
-/// bounded because a failure moves to the next model immediately.
-const ATTEMPT_TIMEOUT_SECS: u64 = 8;
+/// exists. Then 8s, which made an overloaded Groq cost up to 16s before the
+/// raw transcript pasted. Measured round trip is 0.3-0.8s, so 5s is still a
+/// genuine ceiling, and a timeout now skips straight to Claude rather than
+/// waiting out the second Groq model too.
+const ATTEMPT_TIMEOUT_SECS: u64 = 5;
 
 /// Groq bills `max_tokens` against the per-minute token budget whether or not
 /// the model uses it. Ben's key reports:
@@ -92,7 +95,7 @@ fn budget_tokens(raw_text: &str) -> u64 {
 }
 
 pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String> {
-    format_text_with(api_key, raw_text, FORMAT_PROMPT).await
+    format_text_with(api_key, &ClaudeCreds::default(), raw_text, FORMAT_PROMPT).await
 }
 
 /// `system_prompt` is the COMPLETE system message: base rules, the mode's
@@ -105,33 +108,84 @@ pub async fn format_text(api_key: &str, raw_text: &str) -> Result<String, String
 /// filler words" simply loses - measured against the live API, verbatim
 /// stripped every "um" anyway. A mode that disagrees with the base must
 /// replace it, not argue with it.
+///
+/// Chain: each Groq model in `MODEL_CHAIN` (one quick retry on a 5xx or
+/// dropped connection, straight on for a 429 since limits are per model,
+/// straight to Claude on a timeout), then Claude if a key is configured.
+/// Every output goes through the same sanitise + validate gate.
 pub async fn format_text_with(
     api_key: &str,
+    claude: &ClaudeCreds,
     raw_text: &str,
     system_prompt: &str,
 ) -> Result<String, String> {
-    if api_key.is_empty() {
+    if api_key.is_empty() && !claude.is_configured() {
         return Err("Groq API key not configured — add it in Settings > General".to_string());
     }
 
     let client = Client::builder()
         .timeout(Duration::from_secs(ATTEMPT_TIMEOUT_SECS))
+        .connect_timeout(Duration::from_secs(3))
         .build()
         .map_err(|e| e.to_string())?;
 
     let user_msg = format!("<transcription>{}</transcription>", raw_text);
     let mut errors: Vec<String> = Vec::new();
 
-    for model in MODEL_CHAIN {
-        match attempt(&client, api_key, model, &user_msg, raw_text, system_prompt).await {
-            Ok(text) => {
-                if !errors.is_empty() {
-                    crate::applog::log(&format!(
-                        "Formatted with fallback model {} after: {}",
-                        model,
-                        errors.join(" | ")
-                    ));
+    if !api_key.is_empty() {
+        'groq: for model in MODEL_CHAIN {
+            for try_no in 0..2 {
+                match attempt(&client, api_key, model, &user_msg, raw_text, system_prompt).await {
+                    Ok(text) => {
+                        if !errors.is_empty() {
+                            crate::applog::log(&format!(
+                                "Formatted with fallback model {} after: {}",
+                                model,
+                                errors.join(" | ")
+                            ));
+                        }
+                        return Ok(text);
+                    }
+                    Err(e) => {
+                        crate::applog::log(&format!("Format attempt failed on {}: {}", model, e));
+                        errors.push(format!("{}: {}", model, e));
+                        match e.kind {
+                            FailKind::Transient if try_no == 0 => {
+                                tokio::time::sleep(RETRY_DELAY).await;
+                                continue;
+                            }
+                            FailKind::Timeout => break 'groq,
+                            _ => continue 'groq,
+                        }
+                    }
                 }
+            }
+        }
+    } else {
+        errors.push("groq: no API key".to_string());
+    }
+
+    if claude.is_configured() {
+        let model = crate::format_claude::CLAUDE_MODEL;
+        let result = crate::format_claude::complete(
+            claude,
+            system_prompt,
+            &user_msg,
+            budget_tokens(raw_text),
+        )
+        .await
+        .and_then(|raw| {
+            let cleaned = sanitize_output(&raw);
+            validate(&cleaned, raw_text).map_err(Failure::fatal)?;
+            Ok(cleaned)
+        });
+        match result {
+            Ok(text) => {
+                crate::applog::log(&format!(
+                    "Formatted with Claude fallback {} after: {}",
+                    model,
+                    errors.join(" | ")
+                ));
                 return Ok(text);
             }
             Err(e) => {
@@ -151,7 +205,7 @@ async fn attempt(
     user_msg: &str,
     raw_text: &str,
     system_prompt: &str,
-) -> Result<String, String> {
+) -> Result<String, Failure> {
     let mut body = json!({
         "model": model,
         "messages": [
@@ -173,32 +227,32 @@ async fn attempt(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("request failed: {}", e))?;
+        .map_err(|e| Failure::from_reqwest(&e))?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
+        let status = resp.status().as_u16();
         let text = resp.text().await.unwrap_or_default();
-        return Err(format!("HTTP {}: {}", status, text.trim()));
+        return Err(Failure::from_status(status, &text));
     }
 
     let json: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("JSON parse failed: {}", e))?;
+        .map_err(|e| Failure::fatal(format!("JSON parse failed: {}", e)))?;
 
     let choice = &json["choices"][0];
     let finish = choice["finish_reason"].as_str().unwrap_or("");
     if finish == "length" {
-        return Err("response truncated (finish_reason=length)".to_string());
+        return Err(Failure::fatal("response truncated (finish_reason=length)"));
     }
 
     let raw = choice["message"]["content"].as_str().unwrap_or("").trim();
     if raw.is_empty() {
-        return Err("empty response".to_string());
+        return Err(Failure::fatal("empty response"));
     }
 
     let cleaned = sanitize_output(raw);
-    validate(&cleaned, raw_text)?;
+    validate(&cleaned, raw_text).map_err(Failure::fatal)?;
     Ok(cleaned)
 }
 
@@ -576,6 +630,27 @@ mod live {
             assert!(got.is_ascii(), "{} returned non-ASCII: {:?}", model, got);
             tokio::time::sleep(Duration::from_millis(1300)).await;
         }
+    }
+
+    /// Groq rejects a bad key (401) on both models, so the chain must reach
+    /// Claude and still return a real cleanup, through the same validate gate.
+    #[tokio::test]
+    #[ignore = "hits the real Anthropic API; needs TYPR_LIVE_CLAUDE_KEY (+ TYPR_LIVE_CLAUDE_WORKSPACE for an org key)"]
+    async fn claude_answers_when_groq_fails() {
+        let creds = ClaudeCreds {
+            api_key: std::env::var("TYPR_LIVE_CLAUDE_KEY").expect("set TYPR_LIVE_CLAUDE_KEY"),
+            workspace_id: std::env::var("TYPR_LIVE_CLAUDE_WORKSPACE").unwrap_or_default(),
+        };
+        let raw = "so um basically ship the thing on friday, actually make that thursday, and tell the client";
+        let t = std::time::Instant::now();
+        let got = format_text_with("gsk_deliberately_invalid", &creds, raw, FORMAT_PROMPT)
+            .await
+            .unwrap_or_else(|e| panic!("Claude fallback failed: {}", e));
+        println!("claude fallback in {:?}: {}", t.elapsed(), got);
+        let low = got.to_lowercase();
+        assert!(low.contains("thursday"), "lost the content: {:?}", got);
+        assert!(!low.contains(" um "), "kept a filler: {:?}", got);
+        assert!(got.is_ascii(), "non-ASCII: {:?}", got);
     }
 
     #[tokio::test]

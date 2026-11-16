@@ -43,6 +43,16 @@ pub struct Settings {
     pub microphone: String,
     #[serde(rename = "groqApiKey", default)]
     pub groq_api_key: String,
+    /// Fallback for the cleanup pass when Groq is rate-limited or down.
+    /// Claude cannot transcribe audio, so this covers cleanup only.
+    #[serde(rename = "anthropicApiKey", default)]
+    pub anthropic_api_key: String,
+    /// Only for an org-level key not scoped to a workspace; else empty.
+    #[serde(rename = "anthropicWorkspaceId", default)]
+    pub anthropic_workspace_id: String,
+    /// Last-resort speech-to-text (Voxtral) after both Groq Whisper models.
+    #[serde(rename = "mistralApiKey", default)]
+    pub mistral_api_key: String,
     #[serde(rename = "recordingMode", default = "default_recording_mode")]
     pub recording_mode: String,
     #[serde(default = "default_hotkey")]
@@ -81,6 +91,9 @@ impl Default for Settings {
         Self {
             microphone: default_microphone(),
             groq_api_key: String::new(),
+            anthropic_api_key: String::new(),
+            anthropic_workspace_id: String::new(),
+            mistral_api_key: String::new(),
             recording_mode: default_recording_mode(),
             hotkey: default_hotkey(),
             autostart: default_autostart(),
@@ -95,6 +108,13 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub fn claude_creds(&self) -> crate::format_claude::ClaudeCreds {
+        crate::format_claude::ClaudeCreds {
+            api_key: self.anthropic_api_key.clone(),
+            workspace_id: self.anthropic_workspace_id.clone(),
+        }
+    }
+
     pub fn config_path(app_dir: &PathBuf) -> PathBuf {
         app_dir.join("config.json")
     }

@@ -142,6 +142,7 @@ impl Recorder {
             let transcriber = crate::groq_adapter::default_transcriber();
             let opts = crate::transcriber::TranscribeOpts {
                 api_key: settings.groq_api_key.clone(),
+                mistral_api_key: settings.mistral_api_key.clone(),
                 language: "en".to_string(),
             };
             let raw_text = transcriber.transcribe(&temp_path, &opts).await?;
