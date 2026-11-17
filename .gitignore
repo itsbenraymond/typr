@@ -32,3 +32,4 @@ whisper.cpp/
 
 .build/
 .vscode/
+graphify-out/
