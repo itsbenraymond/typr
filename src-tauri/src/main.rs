@@ -10,6 +10,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use typr_lib::applog;
 use typr_lib::audio;
+use typr_lib::history;
 use typr_lib::overlay;
 use typr_lib::recorder::{Recorder, RecordingState};
 use typr_lib::settings::Settings;
@@ -84,6 +85,50 @@ async fn toggle_recording(
 #[tauri::command]
 fn cancel_recording(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.recorder.cancel_recording(&app)
+}
+
+// ── History ──────────────────────────────────────────────────────────────
+// Async + spawn_blocking so a slow query never runs on the UI thread.
+
+async fn with_history<T, F>(app_dir: PathBuf, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = history::open(&history::db_path(&app_dir)).map_err(|e| e.to_string())?;
+        f(&conn).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn history_list(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<history::Dictation>, String> {
+    let limit = limit.unwrap_or(100).clamp(1, 500);
+    let offset = offset.unwrap_or(0).max(0);
+    with_history(state.app_dir.clone(), move |c| {
+        history::list(c, query.as_deref(), limit, offset)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn history_stats(
+    state: State<'_, AppState>,
+    since_ts: i64,
+) -> Result<history::Stats, String> {
+    with_history(state.app_dir.clone(), move |c| history::stats(c, since_ts)).await
+}
+
+#[tauri::command]
+fn history_diff(before: String, after: String) -> Vec<history::DiffOp> {
+    history::word_diff(&before, &after)
 }
 
 fn apply_autostart(app: &tauri::AppHandle, enabled: bool) {
@@ -266,6 +311,8 @@ fn main() {
     });
 
     let settings = Settings::load(&app_dir);
+    // Creates history.db and runs the one-off typr.log import, off-thread.
+    history::init_in_background(app_dir.clone());
     let initial_hotkey = settings.hotkey.clone();
     let want_autostart = settings.autostart;
 
@@ -300,6 +347,9 @@ fn main() {
             toggle_recording,
             cancel_recording,
             autostart_is_enabled,
+            history_list,
+            history_stats,
+            history_diff,
         ])
         // ── Hide main window to tray on close; overlay just hides itself ──
         .on_window_event(|window, event| {

@@ -28,7 +28,11 @@
           </div>
         </div>
         <nav id="sidebar-nav">
-          <a class="nav-item active" data-section="general">
+          <a class="nav-item active" data-section="history">
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2.5 8a5.5 5.5 0 105.5-5.5A5.5 5.5 0 003.4 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M2.5 2.5V5h2.5M8 5.5V8l1.8 1.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            History
+          </a>
+          <a class="nav-item" data-section="general">
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.2"/>
               <path d="M8 5v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -62,7 +66,22 @@
       </aside>
 
       <main id="content">
-        <section id="section-general" class="content-section active">
+        <section id="section-history" class="content-section active">
+          <div class="section-header">
+            <h2 class="section-title">History</h2>
+            <p class="section-desc">Everything Typr has typed for you. Open one to see what the cleanup changed.</p>
+          </div>
+          <div class="history-stats">
+            <div class="stat"><span class="stat-value" id="stat-total">-</span><span class="stat-label">dictations</span></div>
+            <div class="stat"><span class="stat-value" id="stat-words">-</span><span class="stat-label">words</span></div>
+            <div class="stat"><span class="stat-value" id="stat-week">-</span><span class="stat-label" id="stat-week-label">this week</span></div>
+          </div>
+          <input type="search" id="history-search" placeholder="Search everything you've said" spellcheck="false" />
+          <div class="history-list" id="history-list"></div>
+          <button class="btn-add hidden" id="history-more">Show more</button>
+        </section>
+
+        <section id="section-general" class="content-section">
           <div class="section-header">
             <h2 class="section-title">General</h2>
             <p class="section-desc">Audio input, startup and transcription engine</p>

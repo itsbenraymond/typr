@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { refreshHistory } from "./history";
 
 interface ModeOverride {
   app: string;
@@ -60,6 +61,7 @@ navItems.forEach((item) => {
     sections.forEach((s) => s.classList.remove("active"));
     item.classList.add("active");
     document.getElementById(`section-${target}`)?.classList.add("active");
+    if (target === "history") refreshHistory();
   });
 });
 

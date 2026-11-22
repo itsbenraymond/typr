@@ -35,6 +35,7 @@ before walking away.
 | Installed binary | `C:\Users\Ben\AppData\Local\Typr\typr.exe` |
 | Config | `C:\Users\Ben\AppData\Roaming\com.typr.app\config.json` |
 | **Log** | `C:\Users\Ben\AppData\Roaming\com.typr.app\typr.log` |
+| **History** | `C:\Users\Ben\AppData\Roaming\com.typr.app\history.db` (SQLite) |
 
 **The log is the primary diagnostic.** Every hotkey event, panic, mode
 decision, context read and transcription result lands there, with a heartbeat
@@ -45,6 +46,45 @@ This is its **own git repo** (`github.com/itsbenraymond/typr`) and is
 gitignored from AI-OS, so the root `git status` shows nothing. Commit and push
 from inside this folder. The AI-OS deploy-drift guard compares against this
 repo's origin, so **commit and push before deploying** or it blocks.
+
+## Dictation history and the weekly audit (2026-11-22)
+
+Every dictation is a row in `history.db` (`src-tauri/src/history.rs`): time,
+mode, app exe + window title, the raw Whisper transcript, the text after the
+dictionary, the pasted text, which model produced it (`snippet` / `fallback`
+when none did), any warning, and audio / speech-to-text / cleanup / total
+milliseconds. The **History** tab (the default when the window opens) lists
+them newest first, searchable, with totals, and each one expands to a word
+diff of raw against pasted (struck red = said but not pasted, green = pasted
+but never said; punctuation and capitals are ignored).
+
+- **A history write can never block or delay a paste.** The row is staged in
+  the pipeline and written on its own thread after the paste and the state
+  reset. A failure is one `History write FAILED` line in typr.log.
+- **The log backfill runs once**, on the first launch of the history build,
+  gated by a `meta` row. It imports past `Toggle result:` lines as
+  `source = 'log_backfill'` (pasted text, mode and app only; the log never
+  had the raw transcript). Lines at or after the first live row are skipped.
+- Startup logs `History: N dictations in history.db`.
+
+**Weekly audit** (run by `/business-audit`):
+
+```bash
+node projects/typr/scripts/history-audit.mjs            # last 7 days
+node projects/typr/scripts/history-audit.mjs --days 14 --stdout
+```
+
+Writes `%APPDATA%\com.typr.app\audits\YYYY-MM-DD.md` (it quotes dictation
+text, so it stays next to the data and out of git) and prints the path and
+counts. It flags dictations where the cleanup probably did something Ben did
+not ask for: much shorter or longer than spoken (fillers excluded), words
+added that were never said (beyond grammar glue), assistant openers
+("Sure", "Here's", "Subject:", `[Your Name]`), a question that came out
+answered, and apps that fell back to the default mode. It ends with
+dictionary candidates: words the model keeps substituting the same way, and
+names spelled more than one way. Fix a flag with a prompt or validation
+change (then the live suite) or a dictionary entry, never by editing the
+history.
 
 ## Locked decisions (Ben, 2026-10-11)
 
@@ -131,7 +171,7 @@ Groq is still the primary for both steps. When it fails:
 
 ```bash
 cd src-tauri
-cargo test --release                       # 85 offline, fast, no network
+cargo test --release                       # 117 offline, fast, no network
 TYPR_LIVE_GROQ_KEY=gsk_... cargo test --release -- --ignored --test-threads=1
 ```
 

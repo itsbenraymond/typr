@@ -27,6 +27,12 @@ pub struct Transformed {
     /// Set when the user should be told something went sideways even though
     /// text was still produced.
     pub warning: Option<String>,
+    /// The transcript after the personal dictionary, before the model. Kept
+    /// for the history, so the audit can tell a dictionary fix from a model
+    /// edit.
+    pub corrected: String,
+    /// Which model produced the text, or `snippet` / `fallback`.
+    pub model: String,
 }
 
 /// Decide the mode for this dictation without running anything.
@@ -56,6 +62,8 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
             mode,
             model_used: false,
             warning: None,
+            corrected: raw_text.to_string(),
+            model: "snippet".into(),
         };
     }
 
@@ -69,7 +77,7 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     // ── Layer 2: the model ──
     let system_prompt = build_prompt(settings, mode);
 
-    match crate::format_groq::format_text_with(
+    match crate::format_groq::format_text_with_model(
         &settings.groq_api_key,
         &settings.claude_creds(),
         &corrected,
@@ -77,7 +85,7 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     )
         .await
     {
-        Ok(formatted) => Transformed {
+        Ok((formatted, model)) => Transformed {
             // ── Layer 3b: the model can re-break a name. Fix it again.
             // ── Layer 3c: paragraphs and no opening "Okay," whatever the
             // model did (Ben, 2026-11-22). Whitespace and openers only.
@@ -88,6 +96,8 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
             mode,
             model_used: true,
             warning: None,
+            corrected,
+            model,
         },
         Err(e) => {
             applog::log(&format!("Transform failed ({}), using corrected transcript", e));
@@ -98,6 +108,8 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
                 mode,
                 model_used: false,
                 warning: Some(short_reason(&e)),
+                corrected,
+                model: "fallback".into(),
             }
         }
     }
@@ -229,6 +241,7 @@ mod tests {
         assert_eq!(out.text, "Ben Raymond\nKangaroo Growth\n0400 000 000");
         assert!(!out.model_used);
         assert!(out.warning.is_none(), "a snippet is not a failure");
+        assert_eq!(out.model, "snippet");
     }
 
     #[tokio::test]
@@ -249,6 +262,8 @@ mod tests {
         );
         assert!(!out.model_used);
         assert_eq!(out.warning.as_deref(), Some("Add your Groq API key in Settings"));
+        assert_eq!(out.model, "fallback");
+        assert_eq!(out.corrected, "check Supabase for the rows", "history keeps the dictionary pass");
     }
 
     #[test]

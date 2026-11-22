@@ -186,6 +186,19 @@ pub async fn format_text_with(
     raw_text: &str,
     system_prompt: &str,
 ) -> Result<String, String> {
+    format_text_with_model(api_key, claude, raw_text, system_prompt)
+        .await
+        .map(|(text, _)| text)
+}
+
+/// Same as [`format_text_with`], plus the id of the model that produced the
+/// text, so the history can record which one answered.
+pub async fn format_text_with_model(
+    api_key: &str,
+    claude: &ClaudeCreds,
+    raw_text: &str,
+    system_prompt: &str,
+) -> Result<(String, String), String> {
     if api_key.is_empty() && !claude.is_configured() {
         return Err("Groq API key not configured — add it in Settings > General".to_string());
     }
@@ -211,7 +224,7 @@ pub async fn format_text_with(
                                 errors.join(" | ")
                             ));
                         }
-                        return Ok(text);
+                        return Ok((text, model.to_string()));
                     }
                     Err(e) => {
                         crate::applog::log(&format!("Format attempt failed on {}: {}", model, e));
@@ -253,7 +266,7 @@ pub async fn format_text_with(
                     model,
                     errors.join(" | ")
                 ));
-                return Ok(text);
+                return Ok((text, model.to_string()));
             }
             Err(e) => {
                 crate::applog::log(&format!("Format attempt failed on {}: {}", model, e));

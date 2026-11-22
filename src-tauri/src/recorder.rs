@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::AudioRecorder;
@@ -27,6 +28,8 @@ pub struct Recorder {
     state: Arc<Mutex<RecordingState>>,
     audio_recorder: Arc<Mutex<AudioRecorder>>,
     focused_hwnd: Arc<Mutex<usize>>,
+    /// When the current recording started, for the history's audio length.
+    started_at: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Recorder {
@@ -35,6 +38,7 @@ impl Recorder {
             state: Arc::new(Mutex::new(RecordingState::Ready)),
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
             focused_hwnd: Arc::new(Mutex::new(0)),
+            started_at: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -75,6 +79,7 @@ impl Recorder {
             recorder.level.clone()
         };
 
+        *self.started_at.lock_safe() = Some(Instant::now());
         *state = RecordingState::Recording;
         let _ = app.emit("recording-state", RecordingState::Recording);
         update_overlay(app, &RecordingState::Recording);
@@ -124,6 +129,15 @@ impl Recorder {
         // Collected here because the pipeline closure returns only the text,
         // and the pill can only be flashed after state is back to Ready.
         let soft_warning: Mutex<Option<String>> = Mutex::new(None);
+        // The history row, filled in by the pipeline and written only after
+        // the paste, on its own thread (see `history`).
+        let history_row: Mutex<Option<crate::history::NewDictation>> = Mutex::new(None);
+        let stopped = Instant::now();
+        let audio_ms = self
+            .started_at
+            .lock_safe()
+            .take()
+            .map(|t| stopped.duration_since(t).as_millis() as i64);
 
         // Run the whole pipeline in a closure so we can guarantee state is
         // reset to Ready afterwards — whether the pipeline succeeds or fails.
@@ -146,6 +160,18 @@ impl Recorder {
                 language: "en".to_string(),
             };
             let raw_text = transcriber.transcribe(&temp_path, &opts).await?;
+            let stt_ms = stopped.elapsed().as_millis() as i64;
+            let mut row = crate::history::NewDictation {
+                ts: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
+                source: crate::history::SOURCE_LIVE.into(),
+                raw_text: Some(raw_text.clone()),
+                audio_ms,
+                stt_ms: Some(stt_ms),
+                ..Default::default()
+            };
 
             // Cleanup temp file
             let _ = std::fs::remove_file(&temp_path);
@@ -158,8 +184,16 @@ impl Recorder {
             let cleaned = if format_mode {
                 let noise_cleaned = crate::cleanup::strip_noise_only(&raw_text);
                 let ctx = crate::appctx::for_hwnd(*self.focused_hwnd.lock_safe());
+                let cleanup_started = Instant::now();
                 let result =
                     crate::transform::transform(settings, &noise_cleaned, &ctx).await;
+                row.cleanup_ms = Some(cleanup_started.elapsed().as_millis() as i64);
+                row.mode = Some(result.mode.as_str().to_string());
+                row.app_exe = Some(ctx.exe.clone());
+                row.window_title = Some(ctx.title.clone());
+                row.corrected_text = Some(result.corrected.clone());
+                row.model = Some(result.model.clone());
+                row.warning = result.warning.clone();
 
                 if let Some(warning) = result.warning {
                     // For weeks the failure branch was taken on every single
@@ -171,6 +205,7 @@ impl Recorder {
                 }
                 result.text
             } else {
+                row.model = Some("none".into());
                 cleanup_text(&raw_text)
             };
 
@@ -179,6 +214,14 @@ impl Recorder {
                 let _ = overlay.eval(
                     "document.getElementById('bar')?.removeAttribute('data-format-mode');"
                 );
+            }
+
+            // Staged before the paste so a dictation whose paste fails is still
+            // in the history, where Ben can copy it back out. Written later.
+            if !cleaned.trim().is_empty() || !raw_text.trim().is_empty() {
+                row.final_text = cleaned.clone();
+                row.total_ms = Some(stopped.elapsed().as_millis() as i64);
+                *history_row.lock_safe() = Some(row);
             }
 
             // Auto-paste — re-click the original cursor position so the correct
@@ -200,6 +243,15 @@ impl Recorder {
             *state = RecordingState::Ready;
             let _ = app.emit("recording-state", RecordingState::Ready);
             update_overlay(app, &RecordingState::Ready);
+        }
+
+        // After the paste and the state reset, never before: nothing about
+        // the database may delay or block a dictation.
+        if let Some(row) = history_row.lock_safe().take() {
+            let handle = app.clone();
+            crate::history::record_in_background(app_dir.clone(), row, move || {
+                let _ = handle.emit("history-updated", ());
+            });
         }
 
         match &result {
