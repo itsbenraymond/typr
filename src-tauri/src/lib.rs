@@ -15,6 +15,7 @@ pub mod appctx;
 pub mod modes;
 pub mod vocab;
 pub mod transform;
+pub mod paragraphs;
 pub mod supervisor;
 
 /// A single panic anywhere while holding one of our Mutexes (most likely the

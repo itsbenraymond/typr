@@ -79,7 +79,12 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     {
         Ok(formatted) => Transformed {
             // ── Layer 3b: the model can re-break a name. Fix it again.
-            text: vocab::apply_dictionary(&settings.dictionary, &formatted),
+            // ── Layer 3c: paragraphs and no opening "Okay," whatever the
+            // model did (Ben, 2026-11-22). Whitespace and openers only.
+            text: crate::paragraphs::tidy(
+                &vocab::apply_dictionary(&settings.dictionary, &formatted),
+                mode,
+            ),
             mode,
             model_used: true,
             warning: None,
@@ -170,7 +175,8 @@ mod tests {
     #[test]
     fn auto_mode_picks_from_the_app() {
         let s = settings();
-        assert_eq!(mode_for(&s, &ctx("code.exe", "main.rs")), Mode::Developer);
+        assert_eq!(mode_for(&s, &ctx("code.exe", "main.rs")), Mode::Prompt);
+        assert_eq!(mode_for(&s, &ctx("windowsterminal.exe", "pwsh")), Mode::Developer);
         assert_eq!(mode_for(&s, &ctx("chrome.exe", "Inbox - Gmail")), Mode::Email);
     }
 
@@ -346,7 +352,7 @@ mod live {
         let out = transform(
             &s,
             "create a snake case variable called user profile id",
-            &ctx("code.exe", "main.rs"),
+            &ctx("windowsterminal.exe", "pwsh"),
         )
         .await;
         pace().await;
@@ -415,6 +421,61 @@ mod live {
             "verbatim must not strip fillers: {:?}",
             out.text
         );
+    }
+
+    /// Ben, 2026-11-19: "When I tell it to write an email, it goes 'I'll write
+    /// that email.'" typr.log had the model writing the whole email, subject
+    /// line and [Your Name] included, into a ChatGPT tab. The dictation is
+    /// addressed to the assistant in that tab, never to Typr.
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn prompt_mode_cleans_a_request_instead_of_doing_it() {
+        let s = live_settings();
+        for raw in [
+            "write an email to miss read saying i can't make my music lesson in period one \
+             because i have an art test",
+            "um so yeah can you check why the build failed",
+        ] {
+            let out = transform(&s, raw, &ctx("chrome.exe", "Claude - Google Chrome")).await;
+            pace().await;
+            assert_eq!(out.mode, Mode::Prompt);
+            assert!(out.model_used, "model should have run: {:?} -> {:?}", out.warning, out.text);
+            let t = out.text.to_lowercase();
+            for tell in ["subject:", "dear ", "[your", "i'll ", "sure", "here's", "here is"] {
+                assert!(!t.contains(tell), "answered instead of cleaning ({:?}): {:?}", tell, out.text);
+            }
+            assert!(
+                t.contains("write an email") || t.contains("can you check"),
+                "lost the request: {:?}",
+                out.text
+            );
+        }
+    }
+
+    /// Ben, 2026-11-22: "I want Typr to clean up the text I say and format it
+    /// nicely into paragraphs. If I say 'okay', it just takes it literally."
+    /// A real brief he dictated into Claude Code in VS Code.
+    #[tokio::test]
+    #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
+    async fn a_vs_code_brief_comes_out_in_paragraphs_without_the_okays() {
+        let s = live_settings();
+        let raw = "okay cool but i don't think you should leak sensitive info like what platform \
+                   they use for example if they use xero or servicem8 or whatever that's not something \
+                   you can publicly disclose don't do that also when i stop hovering over something it \
+                   shouldn't pause where i stopped hovering it should just jump back to the top okay and \
+                   then for the open the old site can you make it less like an image and just host the \
+                   site right and then also the about page needs a little bit of a redo and all of the \
+                   services pages need a redo as well";
+        let out = transform(&s, raw, &ctx("code.exe", "Claude Code - AI-OS - Visual Studio Code")).await;
+        pace().await;
+        assert_eq!(out.mode, Mode::Prompt);
+        assert!(out.model_used, "model should have run: {:?}", out.warning);
+        assert!(out.text.contains("\n\n"), "no paragraphs: {:?}", out.text);
+        let low = out.text.to_lowercase();
+        assert!(!low.starts_with("okay") && !low.contains("\nokay"), "kept an okay: {:?}", out.text);
+        for must in ["hover", "about page", "services"] {
+            assert!(low.contains(must), "lost {:?}: {:?}", must, out.text);
+        }
     }
 
     #[tokio::test]

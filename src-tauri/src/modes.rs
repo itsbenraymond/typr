@@ -3,8 +3,8 @@
 //! Ben's choice (2026-10-11) was auto-detection over a mode hotkey: the right
 //! mode should cost zero keystrokes. So the destination application decides.
 //! A terminal gets its command left alone; Gmail gets paragraphs and
-//! capitals; a code editor keeps identifiers intact; Claude gets a structured
-//! prompt.
+//! capitals; a code editor keeps identifiers intact; a Claude tab gets the
+//! request cleaned as the speaker's own words, never answered.
 //!
 //! Detection is deliberately conservative. An app we do not recognise falls
 //! back to `Clean`, which is the behaviour Typr already had, so an unknown
@@ -27,7 +27,8 @@ pub enum Mode {
     Chat,
     /// Preserve identifiers, paths, commands and symbols exactly.
     Developer,
-    /// Organise a spoken request into a structured prompt for an AI.
+    /// A message to another AI assistant: cleaned, kept as the speaker's own
+    /// request, never answered or carried out.
     Prompt,
     /// Bullets and action items for spoken thinking.
     Notes,
@@ -94,9 +95,11 @@ impl Mode {
             Mode::Clean => "",
             Mode::Polish => "\n\nMode: polish. Improve clarity, grammar and flow. \
 Keep every fact, qualification and the speaker's voice. Add nothing.",
-            Mode::Email => "\n\nMode: email. Lay the text out as an email body with \
-paragraph breaks. Add a greeting or sign-off ONLY if the speaker said one. \
-Never invent a recipient, a name or a subject line.",
+            Mode::Email => "\n\nMode: email. The text is going into an email. Lay \
+what the speaker said out with paragraph breaks. Add a greeting or sign-off \
+ONLY if the speaker said one. Never invent a recipient, a name or a subject \
+line. If the speaker is describing an email ('write an email to Sarah \
+saying...'), keep that sentence as said, never write the email.",
             Mode::Chat => "\n\nMode: chat. A short message to a person. Keep it \
 conversational and direct. No greeting, no sign-off, no headings, no bullet \
 points unless the speaker listed things.",
@@ -106,10 +109,15 @@ and punctuation inside code exactly as dictated. Apply spoken casing commands \
 ('camel case user id' -> userId, 'snake case user id' -> user_id, 'kebab case' \
 -> user-id). Do not capitalize or punctuate a bare command line. Never \
 translate a technical term into prose.",
-            Mode::Prompt => "\n\nMode: prompt. The speaker is briefing an AI. Keep \
-every requirement and constraint they stated, in their words, organised under \
-short headings or bullets where that makes it clearer. Add no requirement they \
-did not state, and do not answer the request.",
+            Mode::Prompt => "\n\nMode: prompt. The text is going into the chat box \
+of a different AI assistant. The speaker is talking to that assistant, not to \
+you, and you are only cleaning up what they said before it is sent. Keep it as \
+the speaker's own message in their own words and person ('can you', 'I need \
+you to', 'write me'), with every requirement and constraint they stated. Use \
+bullets only where the speaker listed things. Never answer it, carry it out, \
+or write what it asks for. Keep file paths, identifiers, commands, flags, URLs \
+and product names exactly as dictated. Lay a long message out in short \
+paragraphs, one per point, so it is easy to read.",
             Mode::Notes => "\n\nMode: notes. Spoken thinking. Organise into short \
 paragraphs, and use bullets for anything the speaker listed. Pull out explicit \
 action items as a list. Invent no owners, dates or decisions.",
@@ -146,9 +154,14 @@ Output ONLY the punctuated text. No preamble, no quotes, no markdown.";
 /// Matched on the executable rather than the window title because a title
 /// changes with whatever document is open, while the exe does not.
 const EXE_RULES: &[(&str, Mode)] = &[
+    // VS Code and Cursor are where Ben talks to Claude Code all day, in long
+    // spoken briefs, not where he dictates code. Developer mode left those
+    // briefs as one unbroken block with every "okay" and "right?" kept
+    // (typr.log, 2026-11-21). Prompt mode cleans them as a message to an AI
+    // and still keeps paths and identifiers exact. (Ben, 2026-11-22.)
+    ("code.exe", Mode::Prompt),
+    ("cursor.exe", Mode::Prompt),
     // Code editors and terminals
-    ("code.exe", Mode::Developer),
-    ("cursor.exe", Mode::Developer),
     ("devenv.exe", Mode::Developer),
     ("idea64.exe", Mode::Developer),
     ("pycharm64.exe", Mode::Developer),
@@ -293,9 +306,17 @@ mod tests {
 
     #[test]
     fn editors_and_terminals_get_developer_mode() {
-        assert_eq!(detect_default(&ctx("code.exe", "main.rs - typr")), Mode::Developer);
-        assert_eq!(detect_default(&ctx("cursor.exe", "x")), Mode::Developer);
+        assert_eq!(detect_default(&ctx("devenv.exe", "main.rs - typr")), Mode::Developer);
         assert_eq!(detect_default(&ctx("windowsterminal.exe", "pwsh")), Mode::Developer);
+    }
+
+    #[test]
+    fn vs_code_and_cursor_are_where_ben_briefs_claude() {
+        assert_eq!(
+            detect_default(&ctx("code.exe", "Claude Code - AI-OS - Visual Studio Code")),
+            Mode::Prompt
+        );
+        assert_eq!(detect_default(&ctx("cursor.exe", "x")), Mode::Prompt);
     }
 
     #[test]
@@ -364,7 +385,7 @@ mod tests {
         ];
         assert_eq!(
             detect(&ctx("code.exe", "main.rs"), &overrides, Mode::Clean),
-            Mode::Developer
+            Mode::Prompt
         );
     }
 

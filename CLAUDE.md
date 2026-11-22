@@ -52,9 +52,18 @@ repo's origin, so **commit and push before deploying** or it blocks.
   fully-local option on the table, and chose cloud for sub-second latency.
   Dictation text leaves the machine. Do not drift this toward local.
 - **Mode auto-detects from the focused app**, chosen over a mode hotkey because
-  it has to cost zero keystrokes. Editors and terminals get Developer, Gmail
-  gets Email, Slack gets Chat, a Claude tab gets Prompt, unknown apps fall back
-  to Clean.
+  it has to cost zero keystrokes. Terminals and most editors get Developer,
+  Gmail gets Email, Slack gets Chat, a Claude tab gets Prompt, unknown apps fall
+  back to Clean.
+- **VS Code and Cursor get Prompt, not Developer (Ben, 2026-11-22).** That is
+  where he talks to Claude Code all day. Developer mode pasted his briefs as one
+  wall of text with every "okay" and "right?" kept. Prompt mode still keeps
+  paths and identifiers exact.
+- **Paragraphs and no opening "Okay," are guaranteed in code, not just asked
+  for** (`paragraphs.rs`, after the model). The prompt alone got paragraphs on
+  6 of 12 real dictations (A/B 2026-11-22); the backstop splits any output over
+  60 words still in one block. Whitespace and openers only, never words.
+  Skipped for Developer, Chat and Verbatim.
 
 ## Failover when Groq is rate-limited or down (2026-11-16)
 
@@ -98,6 +107,17 @@ Groq is still the primary for both steps. When it fails:
   it.** Verbatim mode's "keep the filler words" lost to the base rule that said
   to remove them, silently, for as long as it existed. `Mode::base_prompt_override`
   is how a mode opts out of the shared rules.
+- **The dictation is never addressed to the cleanup model.** Ben dictates
+  requests to Claude, ChatGPT and people all day ("write an email to X",
+  "can you check Y"). With the transcript alone in the user turn, the model
+  read those as requests to itself and carried them out: typr.log has whole
+  emails, `Subject:` and `[Your Name]` included, pasted into ChatGPT tabs.
+  Fixed 2026-11-19 in three layers: `user_message()` states the job and fences
+  the text in `<transcript>`, the base prompt says who the speaker is talking
+  to with instruction-shaped examples, and `validate()` rejects an output that
+  opens like an assistant ("Sure", "I'll", "Here's", "Subject:") when the
+  speaker did not open that way. Prompt mode no longer restructures into
+  headings: Ben wants his words cleaned, not rewritten as a brief.
 - **The dictionary runs before AND after the model.** The model re-breaks names
   it has never seen. Matching is a single longest-first scan over chars, so
   entries like `C++` are literal and a longer phrase beats a shorter one that
