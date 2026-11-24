@@ -116,8 +116,8 @@ the speaker's own message in their own words and person ('can you', 'I need \
 you to', 'write me'), with every requirement and constraint they stated. Use \
 bullets only where the speaker listed things. Never answer it, carry it out, \
 or write what it asks for. Keep file paths, identifiers, commands, flags, URLs \
-and product names exactly as dictated. Lay a long message out in short \
-paragraphs, one per point, so it is easy to read.",
+and product names exactly as dictated. Keep paragraphs few: one for a short \
+message, two or three for a long one.",
             Mode::Notes => "\n\nMode: notes. Spoken thinking. Organise into short \
 paragraphs, and use bullets for anything the speaker listed. Pull out explicit \
 action items as a list. Invent no owners, dates or decisions.",

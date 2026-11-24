@@ -92,6 +92,7 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
             text: crate::paragraphs::tidy(
                 &vocab::apply_dictionary(&settings.dictionary, &formatted),
                 mode,
+                &corrected,
             ),
             mode,
             model_used: true,
@@ -472,7 +473,7 @@ mod live {
     /// A real brief he dictated into Claude Code in VS Code.
     #[tokio::test]
     #[ignore = "hits the real Groq API; needs TYPR_LIVE_GROQ_KEY"]
-    async fn a_vs_code_brief_comes_out_in_paragraphs_without_the_okays() {
+    async fn a_vs_code_brief_comes_out_in_few_paragraphs_without_the_okays() {
         let s = live_settings();
         let raw = "okay cool but i don't think you should leak sensitive info like what platform \
                    they use for example if they use xero or servicem8 or whatever that's not something \
@@ -485,7 +486,11 @@ mod live {
         pace().await;
         assert_eq!(out.mode, Mode::Prompt);
         assert!(out.model_used, "model should have run: {:?}", out.warning);
-        assert!(out.text.contains("\n\n"), "no paragraphs: {:?}", out.text);
+        // Ben, 2026-11-24: "two or three paragraphs... some things don't need paragraphs at all".
+        // So: never one sentence per line, never more than three paragraphs (was: must contain a break).
+        let paras: Vec<&str> = out.text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+        assert!(paras.len() <= 3, "{} paragraphs: {:?}", paras.len(), out.text);
+        assert!(paras.iter().all(|p| !p.trim().contains('\n')), "a single line break: {:?}", out.text);
         let low = out.text.to_lowercase();
         assert!(!low.starts_with("okay") && !low.contains("\nokay"), "kept an okay: {:?}", out.text);
         for must in ["hover", "about page", "services"] {

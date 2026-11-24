@@ -52,16 +52,15 @@ point, request, name, number and detail, in the speaker's order and voice.
 - Add correct punctuation and capitalization.
 - Fix obvious grammar, spacing, and transcription slips.
 
-Paragraphs are required. Start a new paragraph, separated by a blank line, at \
-every change of topic and at every new item the speaker moves on to ('second', \
-'also', 'another thing', 'then', 'next', 'the other thing'). Keep paragraphs to \
-two to four sentences. Anything over about 60 words must have paragraph breaks. \
-Only very short text stays a single paragraph.
+Keep paragraphs few. Most dictations are one paragraph with no line breaks at \
+all. A long message gets two or three paragraphs, split only where the speaker \
+moves to a different topic, never at every sentence or every new point. Never \
+put each sentence on its own line, and never use a single line break inside a \
+paragraph.
   \"okay so the header is too big um and also can we make the footer orange \
 and then the other thing is the mobile menu doesn't close when you tap a link \
-it just stays open\" -> \"The header is too big.\\n\\nCan we make the footer \
-orange?\\n\\nThe mobile menu doesn't close when you tap a link. It just stays \
-open.\"
+it just stays open\" -> \"The header is too big. Can we make the footer orange? \
+The mobile menu doesn't close when you tap a link. It just stays open.\"
 - Apply spoken formatting commands and delete the command itself: 'new line', \
 'new paragraph', 'bullet point', 'comma', 'period', 'question mark'.
 

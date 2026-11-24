@@ -99,11 +99,19 @@ history.
   where he talks to Claude Code all day. Developer mode pasted his briefs as one
   wall of text with every "okay" and "right?" kept. Prompt mode still keeps
   paths and identifiers exact.
-- **Paragraphs and no opening "Okay," are guaranteed in code, not just asked
-  for** (`paragraphs.rs`, after the model). The prompt alone got paragraphs on
-  6 of 12 real dictations (A/B 2026-11-22); the backstop splits any output over
-  60 words still in one block. Whitespace and openers only, never words.
-  Skipped for Developer, Chat and Verbatim.
+- **Few paragraphs, held in code (Ben, 2026-11-24, reversing 2026-11-22).** The
+  2026-11-22 rule ("paragraphs required", break at every new item, split anything
+  over 60 words) overshot: real dictations came out one sentence per line (#2076,
+  49 words over 10 lines) and 108 words in 5 paragraphs (#2074). Ben: "it should
+  be two or three. Some things don't need to be broken into paragraphs at all."
+  Now the prompt says keep paragraphs few, and `paragraphs.rs` (after the model)
+  joins single line breaks back into the paragraph, makes anything under 80
+  words one paragraph, caps everything at 3, and only splits a single block over
+  140 words. Whitespace and openers only, never words. Lists, a spoken "new
+  line"/"new paragraph", Email and Notes keep their layout; Developer and
+  Verbatim are never touched. A/B on 4 real transcripts x 3 runs: old prompt 5
+  paragraphs + 5 line breaks on #2074, new prompt 1 paragraph and 0 line breaks
+  on all 12 runs.
 
 ## Failover when Groq is rate-limited or down (2026-11-16)
 
