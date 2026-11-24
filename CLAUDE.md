@@ -143,6 +143,11 @@ Groq is still the primary for both steps. When it fails:
 
 ## Things that bite
 
+- **A lowercase drive letter breaks the frontend build.** From a `c:\` working
+  directory (VS Code terminals) Vite fails with "No matching HTML proxy module
+  found ... overlay.html?html-proxy". Same tree from `C:\` builds fine.
+  `scripts/deploy.mjs` now uppercases the drive letter before anything runs;
+  a bare `npm run build` from `c:\` still hits it (2026-11-24).
 - **Groq free tier: 30 requests and 8,000 tokens per minute.** `max_tokens`
   counts against the token budget whether the model uses it or not, so a flat
   4096 allowed about two dictations a minute before 429s. `budget_tokens()`

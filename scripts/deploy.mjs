@@ -28,6 +28,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Vite's html-inline-proxy fails ("No matching HTML proxy module found ...
+// overlay.html?html-proxy&inline-css") when the working directory's drive
+// letter is lowercase (c:\ from a VS Code terminal) but files resolve as C:\.
+// Hit on 2026-11-24: the build failed from c:\, passed from C:\. Every child
+// (tauri build -> npm run build -> vite) inherits this cwd, so fix it once here.
+if (process.platform === "win32" && /^[a-z]:/.test(process.cwd())) {
+  process.chdir(process.cwd()[0].toUpperCase() + process.cwd().slice(1));
+}
+
 const root = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const builtExe = join(root, "src-tauri", "target", "release", "typr.exe");
 const installedExe = join(homedir(), "AppData", "Local", "Typr", "typr.exe");
