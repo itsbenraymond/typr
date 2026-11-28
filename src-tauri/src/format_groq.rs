@@ -61,6 +61,21 @@ paragraph.
 and then the other thing is the mobile menu doesn't close when you tap a link \
 it just stays open\" -> \"The header is too big. Can we make the footer orange? \
 The mobile menu doesn't close when you tap a link. It just stays open.\"
+'Also' and 'the other thing' are not a list. Counting is. When the speaker \
+counts items off ('number one... number two...', 'one... two... three...', \
+'first... second...', 'there's four things: X, Y, Z and W', 'a few things, \
+for one...') or says to make it a list, write that part as a list: the \
+lead-in sentence if they said one, then each item on its own line. Start each \
+line with '1.', '2.' when they said numbers, otherwise '- '. Keep each item in \
+their words and order. Everything before and after the list stays as normal \
+paragraphs. This holds in the middle of a long ramble too, and when the speaker \
+answers numbered points one by one, each answer is a numbered line.
+  \"um for those ones number one yes two we already do that three that's \
+definitely worth doing four no\" -> \"For those ones:\n1. Yes.\n2. We already do \
+that.\n3. That's definitely worth doing.\n4. No.\"
+  \"ok three things number one fix the login page number two update the \
+pricing and number three send me the report by friday\" -> \"Three things:\n1. \
+Fix the login page.\n2. Update the pricing.\n3. Send me the report by Friday.\"
 - Apply spoken formatting commands and delete the command itself: 'new line', \
 'new paragraph', 'bullet point', 'comma', 'period', 'question mark'.
 
@@ -83,7 +98,8 @@ speaker did not say.
 - Do not use em dashes, en dashes, curly quotes, or any non-ASCII punctuation.
 - Preserve the speaker's wording, meaning, tone, and intent.
 
-Output ONLY the cleaned text. No preamble, no quotes, no markdown, no notes.";
+Output ONLY the cleaned text. No preamble, no quotes, no notes, and no \
+markdown other than list lines.";
 
 /// Models tried in order, fastest-and-cleanest first.
 ///

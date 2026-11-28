@@ -113,6 +113,22 @@ history.
   paragraphs + 5 line breaks on #2074, new prompt 1 paragraph and 0 line breaks
   on all 12 runs.
 
+- **Counted lists become lists (Ben, 2026-11-28: "when I say lists it doesn't
+  actually make it into a list").** 8 of 8 dictations where he counted items
+  off came out as one paragraph. Cause: the base prompt said "no markdown" and
+  "never use a single line break", and nothing made a list the exception. Now
+  (1) the prompt allows list lines and says counting ("number one... two...",
+  "first... second...", "four things: X, Y, Z, W") is a list, while "also" and
+  "the other thing" are not; (2) `list_spoken_counts` in `paragraphs.rs` is the
+  backstop: 3+ sentences in a row opening with ascending counts become
+  numbered lines, because on a 1,400-word ramble (#2167, Ben answering
+  Claude's numbered points "two we already do that, three..., four yes")
+  gpt-oss-20b kept the sentences flat on every run; (3) `cap_paragraphs` still
+  caps the prose around a list at 3 instead of switching off. A/B, 9 cases x 3
+  runs: counted cases 0/9 -> 6/6 lists from the prompt, #2167 handled by the
+  backstop, all 5 guards (an "also" ramble, a short message, "bullet points"
+  said as a word, "that's the first thing") unchanged.
+
 ## Failover when Groq is rate-limited or down (2026-11-16)
 
 Groq is still the primary for both steps. When it fails:

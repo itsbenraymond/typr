@@ -42,11 +42,123 @@ pub fn tidy(text: &str, mode: Mode, spoken: &str) -> String {
         // are the point. Email and notes keep greetings, sign-offs and lists
         // on their own lines, so only the opener is stripped there.
         Mode::Developer | Mode::Verbatim => text.to_string(),
-        Mode::Email | Mode::Notes => strip_padding_openers(text),
-        _ if said_a_break(spoken) => strip_padding_openers(text),
-        Mode::Chat => join_soft_breaks(text),
-        _ => cap_paragraphs(&ensure_paragraphs(&join_soft_breaks(&strip_padding_openers(text)))),
+        Mode::Email => strip_padding_openers(text),
+        Mode::Notes => list_spoken_counts(&strip_padding_openers(text)),
+        _ if said_a_break(spoken) => list_spoken_counts(&strip_padding_openers(text)),
+        Mode::Chat => join_soft_breaks(&list_spoken_counts(text)),
+        _ => cap_paragraphs(&ensure_paragraphs(&join_soft_breaks(&list_spoken_counts(&strip_padding_openers(text))))),
     }
+}
+
+/// Counting words a spoken list item can open with, and the number they mean.
+const COUNT_WORDS: &[(&str, u32)] = &[
+    ("one", 1), ("two", 2), ("three", 3), ("four", 4), ("five", 5), ("six", 6),
+    ("seven", 7), ("eight", 8), ("nine", 9), ("ten", 10), ("eleven", 11),
+    ("twelve", 12), ("thirteen", 13), ("fourteen", 14), ("fifteen", 15),
+    ("first", 1), ("firstly", 1), ("second", 2), ("secondly", 2), ("third", 3),
+    ("thirdly", 3), ("fourth", 4), ("fifth", 5), ("sixth", 6), ("seventh", 7),
+    ("eighth", 8), ("ninth", 9), ("tenth", 10),
+];
+
+/// "Number two, we already do that." -> (2, "We already do that.").
+/// Only a count word (optionally after "number") at the very start, followed
+/// by more words, counts. "Two people called." is caught too, which is why a
+/// list needs three ascending counts in a row before anything changes.
+fn leading_count(sentence: &str) -> Option<(u32, String)> {
+    let mut rest = sentence.trim_start();
+    let lower = rest.to_lowercase();
+    if lower.starts_with("number ") {
+        rest = &rest[7..];
+    }
+    let word: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+    let n = word.parse::<u32>().ok().or_else(|| {
+        let w = word.to_lowercase();
+        COUNT_WORDS.iter().find(|(k, _)| *k == w).map(|(_, n)| *n)
+    })?;
+    let after = rest[word.len()..].trim_start_matches(|c: char| c == ',' || c == '.' || c == ':' || c == ')' || c == ' ');
+    if after.split_whitespace().count() == 0 {
+        return None;
+    }
+    let mut chars = after.chars();
+    let first = chars.next()?;
+    Some((n, first.to_uppercase().collect::<String>() + chars.as_str()))
+}
+
+/// Backstop for the model flattening a counted list (2026-11-28, #2167: Ben
+/// answered Claude's numbered points with "two we already do that three
+/// that's definitely worth doing four yes five yes..." and every run of the
+/// list prompt kept it as one paragraph of sentences). Three or more
+/// sentences in a row that open with ascending counts become numbered lines.
+/// A count may skip one number ("nine... eleven"), and up to three ordinary
+/// sentences between two items stay with the item before them. Only the
+/// count word and its "number" become the digit; every other word is kept.
+pub fn list_spoken_counts(text: &str) -> String {
+    if text.lines().any(is_list_line) {
+        return text.to_string();
+    }
+    text.split("\n\n")
+        .map(list_counts_in_paragraph)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn list_counts_in_paragraph(para: &str) -> String {
+    let flat = para.split('\n').map(str::trim).collect::<Vec<_>>().join(" ");
+    let ss = sentences(&flat);
+    let counts: Vec<Option<(u32, String)>> = ss.iter().map(|s| leading_count(s)).collect();
+
+    // Find the longest qualifying run: (start index, end index exclusive, items).
+    let mut best: Option<(usize, usize, Vec<(u32, String)>)> = None;
+    for start in 0..ss.len() {
+        let Some((n0, t0)) = counts[start].clone() else { continue };
+        let mut items = vec![(n0, t0)];
+        let mut last_n = n0;
+        let mut end = start + 1;
+        let mut i = start + 1;
+        let mut gap = 0;
+        while i < ss.len() {
+            match &counts[i] {
+                Some((n, t)) if *n == last_n + 1 || *n == last_n + 2 => {
+                    items.push((*n, t.clone()));
+                    last_n = *n;
+                    gap = 0;
+                    i += 1;
+                    end = i;
+                }
+                Some(_) => break,
+                None if gap < 3 => {
+                    gap += 1;
+                    i += 1;
+                }
+                None => break,
+            }
+        }
+        if items.len() >= 3 && best.as_ref().map_or(true, |b| items.len() > b.2.len()) {
+            // Ordinary sentences between items join the item before them.
+            let mut joined: Vec<(u32, String)> = Vec::new();
+            for k in start..end {
+                match &counts[k] {
+                    Some(_) if joined.len() < items.len() => {
+                        let (n, t) = items[joined.len()].clone();
+                        joined.push((n, t));
+                    }
+                    _ => {
+                        if let Some(last) = joined.last_mut() {
+                            last.1.push(' ');
+                            last.1.push_str(ss[k]);
+                        }
+                    }
+                }
+            }
+            best = Some((start, end, joined));
+        }
+    }
+    let Some((start, end, items)) = best else { return para.to_string() };
+
+    let before = ss[..start].join(" ");
+    let after = ss[end..].join(" ");
+    let list = items.iter().map(|(n, t)| format!("{}. {}", n, t)).collect::<Vec<_>>().join("\n");
+    [before, list, after].into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join("\n\n")
 }
 
 fn said_a_break(spoken: &str) -> bool {
@@ -95,8 +207,11 @@ pub fn join_soft_breaks(text: &str) -> String {
 /// A message holding a list is left as the model laid it out.
 pub fn cap_paragraphs(text: &str) -> String {
     let mut paras: Vec<String> = text.split("\n\n").map(str::to_string).filter(|p| !p.trim().is_empty()).collect();
-    if paras.len() <= 1 || paras.iter().any(|p| p.lines().any(is_list_line)) {
+    if paras.len() <= 1 {
         return text.to_string();
+    }
+    if paras.iter().any(|p| p.lines().any(is_list_line)) {
+        return cap_around_lists(paras);
     }
     let words = |s: &str| s.split_whitespace().count();
     if words(text) < ONE_PARAGRAPH_UNDER {
@@ -108,6 +223,43 @@ pub fn cap_paragraphs(text: &str) -> String {
         paras.splice(i..=i + 1, [merged]);
     }
     paras.join("\n\n")
+}
+
+/// A message with a list in it: the list blocks are left exactly as the model
+/// laid them out, and only the prose around them is capped (2026-11-28:
+/// letting any list switch the cap off gave #1995 a list plus 11 prose
+/// paragraphs). A lead-in line ending in ':' joins the list under it, and two
+/// prose paragraphs are only ever merged when they sit next to each other.
+fn cap_around_lists(paras: Vec<String>) -> String {
+    let is_list = |p: &str| p.lines().any(is_list_line);
+    let mut blocks: Vec<(String, bool)> = Vec::new();
+    for p in paras {
+        let list = is_list(&p);
+        if list {
+            if let Some((prev, false)) = blocks.last() {
+                if prev.trim_end().ends_with(':') {
+                    let (prev, _) = blocks.pop().unwrap();
+                    blocks.push((format!("{}\n{}", prev.trim_end(), p), true));
+                    continue;
+                }
+            }
+        }
+        blocks.push((p, list));
+    }
+    let words = |s: &str| s.split_whitespace().count();
+    loop {
+        let prose = blocks.iter().filter(|b| !b.1).count();
+        if prose <= MAX_PARAGRAPHS {
+            break;
+        }
+        let pair = (0..blocks.len().saturating_sub(1))
+            .filter(|&i| !blocks[i].1 && !blocks[i + 1].1)
+            .min_by_key(|&i| words(&blocks[i].0) + words(&blocks[i + 1].0));
+        let Some(i) = pair else { break };
+        let merged = format!("{} {}", blocks[i].0, blocks[i + 1].0);
+        blocks.splice(i..=i + 1, [(merged, false)]);
+    }
+    blocks.into_iter().map(|b| b.0).collect::<Vec<_>>().join("\n\n")
 }
 
 /// Drop "Okay," / "Alright," etc. at the start of any sentence that has at
@@ -335,6 +487,65 @@ that are worth sending them. What are their details? Could I potentially give th
         assert_eq!(tidy(said, Mode::Prompt, "first line new line second line"), said);
         let email = "Hi Sarah,\n\nThe quote is ready.\n\nCheers,\nBen";
         assert_eq!(tidy(email, Mode::Email, ""), email);
+    }
+
+    // What the list prompt still returned for real dictation #2167 (all 3 runs).
+    #[test]
+    fn a_flattened_spoken_count_becomes_a_numbered_list() {
+        let model = "Send only real leads to ad platforms. Yes once we start running ads do that. One. Two. That's one. Number one by the way. Two we already do that. Three that's definitely worth doing. Four yes. Five yes. Six yes. Seven yes. I think seven yes. Eight yes. Nine yes. There's a lot of conflicting information like $150 or $100 a day. Eleven we should probably do that. We'll do a lead form. I don't know if we should do a booking page.";
+        let out = tidy(model, Mode::Prompt, "");
+        assert!(out.contains("\n2. We already do that.\n3. That's definitely worth doing.\n4. Yes.\n"), "{out}");
+        assert!(out.contains("7. Yes. I think seven yes.\n8. Yes.\n9. Yes. There's a lot of conflicting information like $150 or $100 a day.\n11. We should probably do that."), "{out}");
+        assert!(out.starts_with("Send only real leads to ad platforms."), "{out}");
+        assert!(out.ends_with("I don't know if we should do a booking page."), "{out}");
+    }
+
+    #[test]
+    fn counts_that_are_not_a_list_are_left_alone() {
+        for s in [
+            "Two people called today. Three of them left voicemails. Can you check?",
+            "First, fix the header. Then the footer. Also the menu.",
+            "Do the next four things. Use as many sub agents as you need.",
+            "One more thing. Two people called.",
+        ] {
+            assert_eq!(list_spoken_counts(s), s);
+        }
+        let already = "Three things:\n1. Fix the login page.\n2. Update the pricing.\n3. Send the report.";
+        assert_eq!(list_spoken_counts(already), already);
+        let dev = "one two three four";
+        assert_eq!(tidy(dev, Mode::Developer, ""), dev);
+    }
+
+    #[test]
+    fn ordinals_count_too() {
+        let s = "Three things. First, fix the login page. Second, update the pricing. Third, send me the report.";
+        assert_eq!(list_spoken_counts(s), "Three things.\n\n1. Fix the login page.\n2. Update the pricing.\n3. Send me the report.");
+    }
+
+    // #1995 on the 2026-11-28 list prompt: a correct four-item list, but the
+    // prose around it came out in 11 paragraphs because any list switched the cap off.
+    #[test]
+    fn prose_around_a_list_is_still_capped_and_the_list_is_untouched() {
+        let p = |n: usize, w: &str| vec![w; n].join(" ") + ".";
+        let list = "1. Favicon, save that.\n2. SOP.\n3. Client comms.";
+        let text = [
+            p(30, "alpha"), p(20, "bravo"), p(25, "charlie"), "The four things we need to do:".to_string(),
+            list.to_string(), p(30, "delta"), p(10, "echo"), p(40, "foxtrot"), p(15, "golf"),
+        ]
+        .join("\n\n");
+        let out = tidy(&text, Mode::Prompt, "");
+        let blocks: Vec<&str> = out.split("\n\n").collect();
+        let lists: Vec<&&str> = blocks.iter().filter(|b| b.lines().any(is_list_line)).collect();
+        assert_eq!(lists.len(), 1, "{out}");
+        assert_eq!(*lists[0], format!("The four things we need to do:\n{list}"), "lead-in joins its list");
+        assert!(blocks.len() - 1 <= MAX_PARAGRAPHS * 2, "prose is capped either side of the list: {out}");
+        assert!(blocks.iter().filter(|b| !b.lines().any(is_list_line)).count() <= MAX_PARAGRAPHS + 1);
+        // never a word lost or added
+        let count = |s: &str| s.split_whitespace().count();
+        assert_eq!(count(&out), count(&text));
+        // prose never merges across the list
+        let li = blocks.iter().position(|b| b.lines().any(is_list_line)).unwrap();
+        assert!(blocks[..li].iter().all(|b| !b.contains("delta")));
     }
 
     // What the NEW prompt returned for real dictation #2054 (247 words spoken): one 221-word block.
