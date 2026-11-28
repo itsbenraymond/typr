@@ -37,7 +37,10 @@ if (process.platform === "win32" && /^[a-z]:/.test(process.cwd())) {
   process.chdir(process.cwd()[0].toUpperCase() + process.cwd().slice(1));
 }
 
-const root = join(fileURLToPath(new URL(".", import.meta.url)), "..");
+// The chdir above is not enough: every child runs with cwd: root, and root comes from
+// import.meta.url, which keeps the lowercase drive when node is started from Git Bash
+// (2026-11-28: deploy failed from bash, passed from PowerShell). Uppercase it here too.
+const root = join(fileURLToPath(new URL(".", import.meta.url)), "..").replace(/^[a-z]:/, (d) => d.toUpperCase());
 const builtExe = join(root, "src-tauri", "target", "release", "typr.exe");
 const installedExe = join(homedir(), "AppData", "Local", "Typr", "typr.exe");
 const logPath = join(homedir(), "AppData", "Roaming", "com.typr.app", "typr.log");
