@@ -157,9 +157,22 @@ impl Recorder {
             let opts = crate::transcriber::TranscribeOpts {
                 api_key: settings.groq_api_key.clone(),
                 mistral_api_key: settings.mistral_api_key.clone(),
+                cloudflare_account_id: settings.cloudflare_account_id.clone(),
+                cloudflare_api_token: settings.cloudflare_api_token.clone(),
                 language: "en".to_string(),
             };
-            let raw_text = transcriber.transcribe(&temp_path, &opts).await?;
+            // temp_recording.wav is overwritten by the next dictation, so a
+            // failure that left the audio only there lost it (2026-11-28, a
+            // 17-minute brief). Keep it; scripts/retry-failed.mjs re-sends it.
+            let raw_text = match transcriber.transcribe(&temp_path, &opts).await {
+                Ok(t) => t,
+                Err(e) => {
+                    return Err(match keep_failed_recording(app_dir, &temp_path) {
+                        Some(kept) => format!("{} (audio kept: {})", e, kept.display()),
+                        None => e,
+                    })
+                }
+            };
             let stt_ms = stopped.elapsed().as_millis() as i64;
             let mut row = crate::history::NewDictation {
                 ts: SystemTime::now()
@@ -283,4 +296,29 @@ mod tests {
         let recorder = Recorder::new();
         assert_eq!(recorder.get_state(), RecordingState::Ready);
     }
+}
+
+/// Copy a recording that could not be transcribed into `failed/` so the next
+/// dictation cannot overwrite it. Keeps the newest 30.
+pub fn keep_failed_recording(app_dir: &PathBuf, temp_path: &PathBuf) -> Option<PathBuf> {
+    let dir = app_dir.join("failed");
+    std::fs::create_dir_all(&dir).ok()?;
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let dest = dir.join(format!("{}.wav", ts));
+    if let Err(e) = std::fs::copy(temp_path, &dest) {
+        crate::applog::log(&format!("Could not keep failed recording: {}", e));
+        return None;
+    }
+    crate::applog::log(&format!("Failed recording kept at {}", dest.display()));
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        let mut wavs: Vec<PathBuf> = rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().map_or(false, |x| x == "wav"))
+            .collect();
+        wavs.sort();
+        while wavs.len() > 30 {
+            let _ = std::fs::remove_file(wavs.remove(0));
+        }
+    }
+    Some(dest)
 }

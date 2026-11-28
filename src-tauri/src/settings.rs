@@ -53,6 +53,11 @@ pub struct Settings {
     /// Last-resort speech-to-text (Voxtral) after both Groq Whisper models.
     #[serde(rename = "mistralApiKey", default)]
     pub mistral_api_key: String,
+    /// Workers AI speech-to-text, between Groq and Mistral (2026-11-28).
+    #[serde(rename = "cloudflareAccountId", default)]
+    pub cloudflare_account_id: String,
+    #[serde(rename = "cloudflareApiToken", default)]
+    pub cloudflare_api_token: String,
     #[serde(rename = "recordingMode", default = "default_recording_mode")]
     pub recording_mode: String,
     #[serde(default = "default_hotkey")]
@@ -94,6 +99,8 @@ impl Default for Settings {
             anthropic_api_key: String::new(),
             anthropic_workspace_id: String::new(),
             mistral_api_key: String::new(),
+            cloudflare_account_id: String::new(),
+            cloudflare_api_token: String::new(),
             recording_mode: default_recording_mode(),
             hotkey: default_hotkey(),
             autostart: default_autostart(),

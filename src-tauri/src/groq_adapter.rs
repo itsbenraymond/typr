@@ -11,6 +11,8 @@ impl Transcriber for GroqAdapter {
         let keys = transcribe_groq::SttKeys {
             groq: opts.api_key.clone(),
             mistral: opts.mistral_api_key.clone(),
+            cloudflare_account: opts.cloudflare_account_id.clone(),
+            cloudflare_token: opts.cloudflare_api_token.clone(),
         };
         transcribe_groq::transcribe(&keys, audio_path).await
     }
@@ -38,6 +40,8 @@ mod tests {
         let opts = TranscribeOpts {
             api_key: String::new(),
             mistral_api_key: String::new(),
+            cloudflare_account_id: String::new(),
+            cloudflare_api_token: String::new(),
             language: "en".to_string(),
         };
         let result = t.transcribe(&PathBuf::from("unused.wav"), &opts).await;

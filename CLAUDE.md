@@ -119,10 +119,26 @@ Groq is still the primary for both steps. When it fails:
 
 | Step | Chain | Key in `config.json` |
 |---|---|---|
-| Speech-to-text | Groq `whisper-large-v3-turbo` → Groq `whisper-large-v3` → Mistral `voxtral-mini-latest` | `groqApiKey`, `mistralApiKey` |
+| Speech-to-text | Groq `whisper-large-v3-turbo` → Groq `whisper-large-v3` → Cloudflare Workers AI `@cf/openai/whisper-large-v3-turbo` → Mistral `voxtral-mini-latest` | `groqApiKey`, `cloudflareAccountId` + `cloudflareApiToken`, `mistralApiKey` |
 | Cleanup | Groq `gpt-oss-20b` → `gpt-oss-120b` → Claude `claude-haiku-5-5` | `groqApiKey`, `anthropicApiKey` (+ `anthropicWorkspaceId`) |
 
 - **Claude cannot transcribe audio.** It only backs up the cleanup pass.
+- **Long recordings are split, and failed audio is kept (2026-11-28).** A
+  17-minute brief was a 31 MB WAV; Groq caps uploads at 25 MB, so every model
+  in the chain returned 413 and the audio sat in `temp_recording.wav` until
+  the next dictation overwrote it. Now `split_wav` cuts anything over 3 minutes
+  on the quietest 100 ms before each mark, the pieces run through the chain 4
+  at a time (one more full pass for a piece that fails), and the text is
+  joined in order. If everything still fails, the audio is copied to
+  `%APPDATA%\com.typr.appailed\<ts>.wav` (newest 30 kept) and the error
+  names the path. Get the words back with
+  `node projects/typr/scripts/retry-failed.mjs` (writes `<ts>.txt`, copies the
+  newest to the clipboard).
+- **Groq's audio cap is per hour, per model: 7,200 audio-seconds.** One
+  17-minute dictation is 1,020 of them, so a few long rambles in an hour can
+  exhaust both Groq models. That is what the Cloudflare step is for (its own
+  free quota, same token as `.env` `CLOUDFLARE_API_TOKEN`). Cloudflare's older
+  `@cf/openai/whisper` was tried and dropped: 39-78s per 3-minute piece.
 - **Groq's limits are per model.** The outage that started this was turbo
   hitting its 7,200 audio-seconds/hour cap ("try again in 2m") while
   large-v3 answered in 0.6s on the same key. So a 429 moves to the next
@@ -184,7 +200,7 @@ Groq is still the primary for both steps. When it fails:
 
 ```bash
 cd src-tauri
-cargo test --release                       # 117 offline, fast, no network
+cargo test --release                       # 127 offline, fast, no network
 TYPR_LIVE_GROQ_KEY=gsk_... cargo test --release -- --ignored --test-threads=1
 ```
 

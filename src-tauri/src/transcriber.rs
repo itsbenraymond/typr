@@ -5,6 +5,9 @@ pub struct TranscribeOpts {
     pub api_key: String,
     /// Optional second-provider key for when Groq is down; empty = skip.
     pub mistral_api_key: String,
+    /// Cloudflare Workers AI account + token; either empty = skip.
+    pub cloudflare_account_id: String,
+    pub cloudflare_api_token: String,
     pub language: String,
 }
 

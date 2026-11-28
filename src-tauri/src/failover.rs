@@ -55,7 +55,15 @@ impl Failure {
         } else {
             FailKind::Transient
         };
-        Self { kind, msg: format!("request failed: {}", e) }
+        // reqwest's Display hides the cause ("error sending request for url");
+        // the source chain says whether it was a timeout, reset or TLS error.
+        let mut msg = format!("request failed: {}", e);
+        let mut src = std::error::Error::source(e);
+        while let Some(inner) = src {
+            msg.push_str(&format!(": {}", inner));
+            src = inner.source();
+        }
+        Self { kind, msg }
     }
 }
 

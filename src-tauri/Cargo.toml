@@ -24,6 +24,7 @@ cpal = "0.15"
 enigo = "0.2"
 reqwest = { version = "0.12", features = ["multipart", "json"] }
 hound = "3.5"
+base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 arboard = "3"
