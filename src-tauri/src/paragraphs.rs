@@ -37,6 +37,13 @@ const TRANSITIONS: &[&str] = &[
 /// `spoken` is the transcript before the model. If the speaker said "new line"
 /// or "new paragraph", their breaks are theirs and the layout is left alone.
 pub fn tidy(text: &str, mode: Mode, spoken: &str) -> String {
+    let cleaned;
+    let text = if matches!(mode, Mode::Developer | Mode::Verbatim) {
+        text
+    } else {
+        cleaned = drop_placeholder_lines(text);
+        cleaned.as_str()
+    };
     match mode {
         // Code and commands: never touch line structure. Verbatim: the words
         // are the point. Email and notes keep greetings, sign-offs and lists
@@ -58,6 +65,89 @@ const COUNT_WORDS: &[(&str, u32)] = &[
     ("first", 1), ("firstly", 1), ("second", 2), ("secondly", 2), ("third", 3),
     ("thirdly", 3), ("fourth", 4), ("fifth", 5), ("sixth", 6), ("seventh", 7),
     ("eighth", 8), ("ninth", 9), ("tenth", 10),
+];
+
+/// The speaker numbered their points out loud: an ascending chain of count
+/// words in the raw transcript (each step +1 or +2, a word or more apart,
+/// at most 150 words apart, starting at one or two, at least 4 long).
+/// Returns the numbers of the longest chain, in order (a skipped number is
+/// missing from it, so the model is never told about a point that was not said).
+///
+/// Why it exists (2026-11-28, #2217): Ben answered 30 numbered points with
+/// "number one, take money on call... two... three, yes... seven, do 72 hours
+/// ... eight..." and the model deleted every number, so the paste was one
+/// paragraph with no way to tell which answer went with which point, and the
+/// sentence-level backstop below had nothing left to see. Measured on all 226
+/// history rows with a raw transcript: fires on 4 (#2167, #2181, #2217,
+/// #2218), every one a real numbered reply, zero false positives.
+pub fn spoken_count_chain(raw: &str) -> Option<Vec<u32>> {
+    const MAX_GAP: usize = 150;
+    const MIN_LEN: usize = 4;
+    let raw_toks: Vec<&str> = raw.split_whitespace().collect();
+    let toks: Vec<String> = raw_toks
+        .iter()
+        .map(|t| t.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_lowercase())
+        .collect();
+    // "two prospects", "4 reminders": a quantity, not a point number. A count
+    // word with its own punctuation ("Two," / "Three.") is always a point.
+    let is_quantity = |i: usize| {
+        let bare = raw_toks[i].chars().last().map_or(false, |c| c.is_ascii_alphanumeric());
+        let next = toks.get(i + 1).map(String::as_str).unwrap_or("");
+        bare && next.len() >= 4 && next.ends_with('s') && !next.ends_with("ss") && !NOT_PLURAL.contains(&next)
+    };
+    let nums: Vec<(usize, u32)> = toks
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !is_quantity(*i))
+        .filter_map(|(i, t)| {
+            let v = t
+                .parse::<u32>()
+                .ok()
+                .filter(|n| (1..=40).contains(n))
+                .or_else(|| COUNT_WORDS.iter().find(|(k, _)| k == t).map(|(_, n)| *n))
+                .or_else(|| CARDINALS_16_20.iter().find(|(k, _)| k == t).map(|(_, n)| *n))?;
+            Some((i, v))
+        })
+        .collect();
+    // best[a] = (chain length ending at nums[a], value the chain started at,
+    // index of the previous link)
+    let mut best: Vec<(usize, u32, Option<usize>)> = Vec::with_capacity(nums.len());
+    let mut top: Option<(usize, usize)> = None; // (length, end index)
+    for (a, &(i, v)) in nums.iter().enumerate() {
+        let mut cur = (1usize, v, None);
+        for b in (0..a).rev() {
+            let (j, u) = nums[b];
+            if i - j > MAX_GAP {
+                break;
+            }
+            if i - j >= 2 && (v == u + 1 || v == u + 2) && best[b].0 + 1 > cur.0 {
+                cur = (best[b].0 + 1, best[b].1, Some(b));
+            }
+        }
+        best.push(cur);
+        if cur.1 <= 2 && cur.0 >= MIN_LEN && top.map_or(true, |t| cur.0 > t.0) {
+            top = Some((cur.0, a));
+        }
+    }
+    let (_, mut at) = top?;
+    let mut values = vec![nums[at].1];
+    while let Some(prev) = best[at].2 {
+        values.push(nums[prev].1);
+        at = prev;
+    }
+    values.reverse();
+    Some(values)
+}
+
+/// Words ending in 's' that are not plural nouns, so "four this" or "five
+/// does" still counts as a point number.
+const NOT_PLURAL: &[&str] = &[
+    "this", "thus", "plus", "does", "goes", "says", "always", "perhaps", "besides",
+    "unless", "bonus", "status", "focus", "minus", "whats", "thats", "theres", "heres", "lets",
+];
+
+const CARDINALS_16_20: &[(&str, u32)] = &[
+    ("sixteen", 16), ("seventeen", 17), ("eighteen", 18), ("nineteen", 19), ("twenty", 20),
 ];
 
 /// "Number two, we already do that." -> (2, "We already do that.").
@@ -164,6 +254,35 @@ fn list_counts_in_paragraph(para: &str) -> String {
 fn said_a_break(spoken: &str) -> bool {
     let s = spoken.to_lowercase();
     s.contains("new line") || s.contains("new paragraph") || s.contains("newline")
+}
+
+/// "14. (No content)": the model numbering a point that was never said
+/// (#2217). Never words the speaker spoke, so the whole line goes.
+fn drop_placeholder_lines(text: &str) -> String {
+    const PLACEHOLDERS: &[&str] = &["no content", "none", "n/a", "na", "nothing", "blank", "empty", "skipped", "no response", "no comment"];
+    let is_placeholder = |line: &str| {
+        let t = line.trim_start();
+        let digits: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            return false;
+        }
+        let rest = t[digits.len()..].trim_start_matches(|c: char| c == '.' || c == ')' || c == ' ');
+        let bare: String = rest
+            .trim_matches(|c: char| c == '(' || c == ')' || c == '[' || c == ']' || c == '.' || c == ' ')
+            .to_lowercase();
+        bare.is_empty() || PLACEHOLDERS.contains(&bare.as_str())
+    };
+    if !text.lines().any(is_placeholder) {
+        return text.to_string();
+    }
+    let kept: Vec<&str> = text.lines().filter(|l| !is_placeholder(l)).collect();
+    kept.join("
+").replace("
+
+
+", "
+
+")
 }
 
 /// A line that is a list item stays on its own line.
@@ -498,6 +617,41 @@ that are worth sending them. What are their details? Could I potentially give th
         assert!(out.contains("7. Yes. I think seven yes.\n8. Yes.\n9. Yes. There's a lot of conflicting information like $150 or $100 a day.\n11. We should probably do that."), "{out}");
         assert!(out.starts_with("Send only real leads to ad platforms."), "{out}");
         assert!(out.ends_with("I don't know if we should do a booking page."), "{out}");
+    }
+
+    #[test]
+    fn a_numbered_reply_said_out_loud_is_detected() {
+        // Opening of real dictation #2217.
+        let raw = "Okay, that's cool. Let me just have a look through now. So number one, take money on call. Yes, I agree. Did he, did Cameron mention deposits? Two, we'll do that on Monday. Two, actually I think they're sent from iPhone is actually really smart. Three. Yes, I think that's smart. Four. definitely smart five no I mean like honestly I just don't think it six set as radio that seven do 72 hours 8, we already do something like this";
+        assert_eq!(spoken_count_chain(raw), Some(vec![1, 2, 3, 4, 5, 6, 7, 8]));
+        assert_eq!(spoken_count_chain("For offer, number one. Yes. Two. Yes. Three. Yes. Four. Yes. Five. Do everything."), Some(vec![1, 2, 3, 4, 5]));
+    }
+
+    #[test]
+    fn placeholder_list_lines_are_dropped() {
+        let model = "13. I think that's good.
+
+14. (No content)
+
+15. Yes, something like that.";
+        assert_eq!(tidy(model, Mode::Prompt, ""), "13. I think that's good.
+
+15. Yes, something like that.");
+        let real = "1. Yes.
+2. None of them, honestly.";
+        assert_eq!(drop_placeholder_lines(real), real);
+    }
+
+    #[test]
+    fn ordinary_numbers_are_not_a_numbered_reply() {
+        for s in [
+            "one more thing, can you check the two pages and the three emails",
+            "we have one client, two prospects, three setters and four leads",
+            "Book it for 2 weeks from now, 3pm, and send 4 reminders over 5 days.",
+            "two things: fix the header and the footer",
+        ] {
+            assert_eq!(spoken_count_chain(s), None, "{s}");
+        }
     }
 
     #[test]

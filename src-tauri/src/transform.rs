@@ -75,7 +75,15 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
     applog::log(&format!("Mode: {} (exe={} title={})", mode.as_str(), ctx.exe, ctx.title));
 
     // ── Layer 2: the model ──
-    let system_prompt = build_prompt(settings, mode);
+    let mut system_prompt = build_prompt(settings, mode);
+    // A numbered reply said out loud: tell the model for THIS dictation, or it
+    // deletes the numbers as filler (#2217). See `spoken_count_chain`.
+    if !matches!(mode, Mode::Developer | Mode::Verbatim) {
+        if let Some(points) = crate::paragraphs::spoken_count_chain(&corrected) {
+            applog::log(&format!("Spoken numbered points detected: {:?}", points));
+            system_prompt.push_str(&numbered_points_note(&points));
+        }
+    }
 
     match crate::format_groq::format_text_with_model(
         &settings.groq_api_key,
@@ -121,6 +129,7 @@ pub async fn transform(settings: &Settings, raw_text: &str, ctx: &AppContext) ->
 /// A mode that contradicts the default rules replaces the base entirely
 /// (see `Mode::base_prompt_override`) rather than appending a contradiction
 /// the model will ignore.
+
 fn build_prompt(settings: &Settings, mode: Mode) -> String {
     match mode.base_prompt_override() {
         // An overriding mode gets no mode suffix — its prompt already says
@@ -574,4 +583,21 @@ mod prompt_tests {
         assert!(!build_prompt(&s, Mode::Verbatim).contains("Keep it short"));
         assert!(build_prompt(&s, Mode::Clean).contains("Keep it short"));
     }
+}
+
+/// The per-dictation note for a numbered reply said out loud. It names the
+/// numbers actually said, because "1 to 30" made the model write
+/// "14. (No content)" for a number Ben skipped (#2217, 2026-11-28).
+fn numbered_points_note(points: &[u32]) -> String {
+    let said = points.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
+    format!(
+        "\n\nTHIS dictation: the speaker numbered their points out loud. The numbers they \
+said, in order: {said}. Use exactly these numbers, no others. The numbers are content, \
+not filler: never delete them. Write each numbered point as its own line starting with \
+its number and a full stop (\"1. \", \"2. \"), in the order spoken. After each number \
+put EVERY word the speaker said for that point, cleaned as usual: all its sentences and \
+questions, never just the first one. A number said twice ('two... two, actually') is one \
+point holding both parts. Never write a placeholder such as '(No content)'. Text before \
+the first number or after the last stays as a normal paragraph."
+    )
 }

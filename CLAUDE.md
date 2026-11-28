@@ -128,6 +128,16 @@ history.
   runs: counted cases 0/9 -> 6/6 lists from the prompt, #2167 handled by the
   backstop, all 5 guards (an "also" ramble, a short message, "bullet points"
   said as a word, "that's the first thing") unchanged.
+- **Numbered replies said out loud (same day, #2217).** Ben answered 30
+  numbered points ("number one... two... seven, do 72 hours...") and the model
+  deleted every number. `spoken_count_chain` scans the RAW transcript for an
+  ascending chain of count words (4+ long, starts at 1-2, steps of 1-2, under
+  150 words apart, skipping "two prospects"-style quantities) and
+  `transform.rs` adds a per-dictation note naming the exact numbers said.
+  Fires on 4 of 227 history rows, all real numbered replies. #2217: 0/3
+  numbered lines without the note, 27 numbered lines (one per number said)
+  with it, full point text kept. `drop_placeholder_lines` removes any
+  "14. (No content)" line the model invents for a skipped number.
 
 ## Failover when Groq is rate-limited or down (2026-11-16)
 
